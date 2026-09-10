@@ -1,0 +1,36 @@
+# Environments
+.venv/
+venv/
+.conda/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editor / tooling
+.vscode/
+.idea/
+.claude/
+
+# Local machine configuration (interpreter paths etc.) -- per-machine, not code
+multimethod.config.json
+
+# Recordings and analysis output -- per-experiment data, not code
+*.abf
+*_events.csv
+*_multimethod_*.csv
+*_multimethod_*.png
+*_multimethod_*.json
+*_reviewed.csv
+*_review_progress.csv
+*_params.json
+*_kernel.csv
+*.png
+!docs/*.png

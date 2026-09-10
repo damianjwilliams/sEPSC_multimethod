@@ -1,0 +1,21 @@
+# Everything the in-repo detectors, the runner and the two windows need.
+#
+# The first five are enough to detect and to write the consensus table
+# headlessly (`python run_all.py rec.abf --no-gui`). PyQt5 and pyqtgraph are
+# for the parameter window and the review window only, and are imported lazily,
+# so a headless machine can still run every in-repo detector.
+#
+# The external ML detectors (miniML, fastmini) deliberately do NOT appear here:
+# they run in their own interpreters via subprocess, because miniML needs
+# TensorFlow 2.14-2.15 and numpy<2, which cannot coexist with a modern numpy in
+# one environment. See README "External detectors".
+
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+pyabf>=2.3.8
+matplotlib>=3.7
+
+# interactive windows only
+PyQt5>=5.15
+pyqtgraph>=0.13
