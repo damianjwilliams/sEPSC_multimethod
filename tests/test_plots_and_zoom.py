@@ -133,6 +133,79 @@ def test_modifiers_select_which_axes_zoom():
     assert zoom_axes("SHIFT") == (False, True), "must be case-insensitive"
 
 
+# ------------------------------------------------------- drag-to-pan maths
+
+def test_dragging_left_advances_the_view_and_right_rewinds_it():
+    """The trace should feel stuck to the mouse: drag it left and you see
+    later data, drag it right and you see earlier data."""
+    from multimethod.review import pan_limits
+
+    later = pan_limits(10.0, 20.0, press=15.0, cursor=13.0)   # dragged left
+    assert later[0] > 10.0
+
+    earlier = pan_limits(10.0, 20.0, press=15.0, cursor=17.0)  # dragged right
+    assert earlier[0] < 10.0
+
+
+def test_panning_never_changes_the_width_of_the_view():
+    """A pan slides the window; only a zoom may resize it."""
+    from multimethod.review import pan_limits
+
+    for cursor in (5.0, 13.0, 15.0, 17.0, 40.0):
+        lo, hi = pan_limits(10.0, 20.0, press=15.0, cursor=cursor)
+        assert (hi - lo) == pytest.approx(10.0)
+
+
+def test_panning_puts_the_pressed_point_back_under_the_cursor():
+    """What makes the drag self-correcting: after the shift, the data
+    coordinate under the pointer is the one that was there on press, so
+    re-deriving the delta each motion event cannot accumulate drift."""
+    from multimethod.review import pan_limits
+
+    lo, hi = 10.0, 20.0
+    press, cursor = 15.0, 12.0
+    new_lo, new_hi = pan_limits(lo, hi, press, cursor)
+    # the cursor sat at this fraction across the view; after the pan the point
+    # at that same fraction must be the pressed coordinate
+    frac = (cursor - lo) / (hi - lo)
+    assert new_lo + frac * (new_hi - new_lo) == pytest.approx(press)
+
+
+def test_a_zero_length_drag_leaves_the_view_alone():
+    from multimethod.review import pan_limits
+
+    assert pan_limits(10.0, 20.0, 15.0, 15.0) == (10.0, 20.0)
+
+
+def test_plain_drag_pans_time_and_shift_drag_pans_amplitude():
+    """Mirrors the zoom modifiers, so one rule covers both gestures."""
+    from multimethod.review import pan_axes
+
+    assert pan_axes(None) == (True, False), "plain drag: time"
+    assert pan_axes("") == (True, False)
+    assert pan_axes("shift") == (False, True), "shift+drag: amplitude"
+    assert pan_axes("SHIFT") == (False, True)
+    # ctrl is the zoom modifier, not a pan modifier; a drag stays on time
+    assert pan_axes("control") == (True, False)
+
+
+def test_pan_and_zoom_modifiers_agree_on_what_shift_means():
+    """shift means "amplitude" for both gestures. If these ever disagree the
+    window would zoom one axis and pan the other from the same modifier."""
+    from multimethod.review import pan_axes
+
+    assert zoom_axes("shift")[1] and pan_axes("shift")[1]
+    assert not zoom_axes("shift")[0] and not pan_axes("shift")[0]
+
+
+def test_the_click_slop_is_small_but_not_zero():
+    """Zero would make every click a one-pixel pan; too large and a real drag
+    would be swallowed as a click."""
+    from multimethod.review import CLICK_SLOP_PX
+
+    assert 1.0 <= CLICK_SLOP_PX <= 12.0
+
+
 # The trace/raster x-axis linkage is asserted in
 # test_runner_and_settings.py::test_review_window_builds_and_autosaves,
 # which is the one place a review window is constructed. Building a

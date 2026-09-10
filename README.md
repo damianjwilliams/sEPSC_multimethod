@@ -193,11 +193,19 @@ scale, and it is what you actually scan for.
 
 | Input | Effect |
 |---|---|
+| **click and drag** | **slide along the recording** - the trace follows the mouse |
+| `shift` + drag | slide the amplitude axis instead |
+| click (no drag) | jump to the nearest event |
 | scroll | zoom time **and** amplitude together |
 | `ctrl` + scroll | stretch the **time base** only |
 | `shift` + scroll | stretch the **amplitude** axis only |
-| drag (toolbar pan) | pan |
 | `Home` or `0` | reset |
+
+Dragging needs no toolbar tool selected. A press that does not move is still a
+click, so panning never costs you a selection - and a drag that happens to
+start on an event marker pans rather than selecting, which is why selection is
+handled on button release rather than through matplotlib's pick event (that
+fires on press, before a drag is distinguishable from a click).
 
 Zoom is anchored on the cursor, so magnifying a burst keeps it under the
 pointer. The modifier state is read from Qt rather than from matplotlib's

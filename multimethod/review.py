@@ -28,9 +28,14 @@ the two axes are independently controllable:
     ctrl  + scroll   stretch the TIME base only
     shift + scroll   stretch the AMPLITUDE axis only
 
-Drag with the toolbar pan tool; Home (or the 0 key) resets. The raster
-shares the trace's x axis, so zooming into a burst up top narrows the
-raster to the same window and the per-method ticks stay aligned under it.
+Click and hold anywhere on the trace and move the mouse left or right to slide
+along the recording -- no toolbar tool to select first. shift+drag moves the
+amplitude axis instead. A press that does not move is still a click, and jumps
+to the nearest event, so dragging never costs you a selection.
+
+Home (or the 0 key) resets. The raster shares the trace's x axis, so zooming or
+dragging up top moves the raster with it and the per-method ticks stay aligned
+underneath.
 
 Design note: colouring by agreement count rather than by method is deliberate.
 With five methods there are 31 possible combinations, and a colour per
@@ -124,6 +129,43 @@ def scroll_modifiers(event) -> str:
     return (getattr(event, "key", None) or "").lower()
 
 
+#: How far the pointer may move between press and release and still count as a
+#: click rather than a drag, in pixels. Small enough that a deliberate drag is
+#: never mistaken for a click; large enough to tolerate the hand-shake in a
+#: click on a trackpad.
+CLICK_SLOP_PX = 4.0
+
+
+def pan_limits(lo: float, hi: float, press: float, cursor: float
+               ) -> tuple[float, float]:
+    """New (lo, hi) while dragging, so `press` stays under the pointer.
+
+    `press` is the data coordinate that was under the cursor when the drag
+    began; `cursor` is the data coordinate under it now. Shifting the limits by
+    their difference puts `press` back under the pointer, which is what makes a
+    drag feel like the trace is stuck to the mouse.
+
+    Self-correcting rather than cumulative: after each step the point under the
+    cursor is `press` again, so re-deriving the delta from the current view on
+    every motion event cannot accumulate drift.
+    """
+    delta = press - cursor
+    return lo + delta, hi + delta
+
+
+def pan_axes(key: str | None) -> tuple[bool, bool]:
+    """Which axes a drag should pan, given the held modifier.
+
+    Deliberately the mirror of `zoom_axes`, so one rule covers both gestures:
+    plain drag moves along TIME, shift+drag moves AMPLITUDE. Dragging pans one
+    axis at a time on purpose -- a free two-axis drag on a trace that is 60 s
+    wide and 100 pA tall slews wildly in whichever direction has more data per
+    pixel, and you lose your place.
+    """
+    k = (key or "").lower()
+    return (not ("shift" in k), "shift" in k)
+
+
 def zoom_axes(key: str | None) -> tuple[bool, bool]:
     """Which axes a scroll should zoom, given the held modifier(s).
 
@@ -145,6 +187,19 @@ def zoom_axes(key: str | None) -> tuple[bool, bool]:
     if ctrl and shift:
         return True, True
     return (not shift, not ctrl)
+
+
+def _closed_hand_cursor():
+    """A grabbing-hand cursor, so a drag looks like it has taken hold."""
+    from PyQt5 import QtCore
+
+    return QtCore.Qt.ClosedHandCursor
+
+
+def _arrow_cursor():
+    from PyQt5 import QtCore
+
+    return QtCore.Qt.ArrowCursor
 
 
 def load_prior_decisions(reviewed_path: str, progress_path: str) -> dict:
@@ -223,6 +278,11 @@ class MethodReviewWindow:
                 self.filter_btn = b
         layout.addLayout(row)
 
+        # Drag-to-pan state. `_press` holds where a press landed, in data
+        # coordinates, so a click can be told from a drag on release.
+        self._press = None
+        self._dragged = False
+
         self.only_unique = False
         self._draw_overview()
         self._draw_raster()
@@ -231,6 +291,9 @@ class MethodReviewWindow:
         self.canvas.mpl_connect("pick_event", self.on_pick)
         self.canvas.mpl_connect("key_press_event", self.on_key)
         self.canvas.mpl_connect("scroll_event", self.on_scroll)
+        self.canvas.mpl_connect("button_press_event", self.on_press)
+        self.canvas.mpl_connect("motion_notify_event", self.on_motion)
+        self.canvas.mpl_connect("button_release_event", self.on_release)
 
     # -- data helpers ---------------------------------------------------
 
@@ -427,12 +490,13 @@ class MethodReviewWindow:
     # -- interaction ----------------------------------------------------
 
     def on_pick(self, event):
-        try:
-            x = float(np.atleast_1d(event.mouseevent.xdata)[0])
-        except (TypeError, IndexError):
-            return
-        times = self.df["peak_time_s"].to_numpy(dtype=float)
-        self.show_event(int(np.argmin(np.abs(times - x))))
+        """Kept for the marker artists, but selection is driven by on_release.
+
+        pick_event fires on button PRESS, before it is known whether the press
+        will become a drag -- so selecting here would change the current event
+        every time a pan happened to start on a marker. on_release knows.
+        """
+        return
 
     def on_scroll(self, event):
         """Scroll to zoom, about the cursor, on whichever panel it is over.
@@ -462,6 +526,69 @@ class MethodReviewWindow:
         if zoom_y and event.ydata is not None:
             ax.set_ylim(*zoom_limits(*ax.get_ylim(), event.ydata, zoom_in))
         self.canvas.draw_idle()
+
+    def _toolbar_busy(self) -> bool:
+        """True while the toolbar's own pan or zoom tool is armed.
+
+        Without this check, dragging with the toolbar pan tool selected would
+        pan twice as fast -- once from the toolbar and once from here.
+        """
+        toolbar = getattr(self.canvas, "toolbar", None)
+        return bool(getattr(toolbar, "mode", "") or "")
+
+    def on_press(self, event):
+        """Record where a left press landed, for panning or for selecting."""
+        if event.button != 1 or event.inaxes is None or self._toolbar_busy():
+            return
+        if event.xdata is None:
+            return
+        self._press = (event.inaxes, event.xdata, event.ydata,
+                       event.x, event.y, event.inaxes.get_xlim(),
+                       event.inaxes.get_ylim())
+        self._dragged = False
+
+    def on_motion(self, event):
+        """Pan while the button is held, so the trace follows the mouse."""
+        if self._press is None or event.inaxes is not self._press[0]:
+            return
+        if event.xdata is None:
+            return
+        ax, px, py, sx, sy, _x0, _y0 = self._press
+        if not self._dragged:
+            # Below the slop this is still a click, not a drag. Waiting keeps a
+            # click on an event marker from nudging the view a pixel.
+            if abs(event.x - sx) < CLICK_SLOP_PX and abs(event.y - sy) < CLICK_SLOP_PX:
+                return
+            self._dragged = True
+            self.canvas.setCursor(_closed_hand_cursor())
+
+        pan_x, pan_y = pan_axes(scroll_modifiers(event))
+        if ax is self.ax_raster:
+            pan_y = False               # its y axis is one row per method
+        if pan_x:
+            ax.set_xlim(*pan_limits(*ax.get_xlim(), px, event.xdata))
+        if pan_y and event.ydata is not None and py is not None:
+            ax.set_ylim(*pan_limits(*ax.get_ylim(), py, event.ydata))
+        self.canvas.draw_idle()
+
+    def on_release(self, event):
+        """A drag ends the pan; a click without a drag selects an event."""
+        if self._press is None:
+            return
+        ax, _px, _py, _sx, _sy, _x0, _y0 = self._press
+        was_drag = self._dragged
+        self._press = None
+        self._dragged = False
+        self.canvas.setCursor(_arrow_cursor())
+        if was_drag or event.button != 1:
+            return
+        # A plain click on the trace or the raster jumps to the nearest event.
+        # Handled here rather than through pick_event so that a drag which
+        # happens to start on an event marker pans instead of selecting.
+        if ax in (self.ax_over, self.ax_raster) and event.xdata is not None:
+            times = self.df["peak_time_s"].to_numpy(dtype=float)
+            if times.size:
+                self.show_event(int(np.argmin(np.abs(times - event.xdata))))
 
     def reset_view(self, *_a):
         """Back to the full trace, both axes, both linked panels."""

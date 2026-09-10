@@ -260,6 +260,46 @@ def test_review_window_builds_and_autosaves(tmp_path, monkeypatch):
         assert w.ax_raster.get_xlim() == pytest.approx((2.0, 4.0))
         w.reset_view()
 
+        # Drag-to-pan, and the click/drag distinction that protects it.
+        import types
+
+        def mouse(ax, xdata, ydata, x, y, button=1, key=None):
+            return types.SimpleNamespace(inaxes=ax, xdata=xdata, ydata=ydata,
+                                         x=x, y=y, button=button, key=key,
+                                         guiEvent=None)
+
+        w.ax_over.set_xlim(2.0, 6.0)
+        before = w.ax_over.get_xlim()
+        w.on_press(mouse(w.ax_over, 4.0, -60.0, 500, 300))
+        w.on_motion(mouse(w.ax_over, 3.0, -60.0, 440, 300))
+        after = w.ax_over.get_xlim()
+        assert after[0] > before[0], "dragging left should advance the view"
+        assert (after[1] - after[0]) == pytest.approx(before[1] - before[0]), (
+            "a pan must not resize the view")
+        assert w.ax_raster.get_xlim() == pytest.approx(after), (
+            "the raster must follow a pan, as it follows a zoom")
+        w.on_release(mouse(w.ax_over, 3.0, -60.0, 440, 300))
+
+        # A press that does not move is a click: it selects, it does not pan.
+        w.reset_view()
+        w.show_event(0)
+        held = w.ax_over.get_xlim()
+        target = float(df.at[len(df) // 2, "peak_time_s"])
+        w.on_press(mouse(w.ax_over, target, -60.0, 500, 300))
+        w.on_release(mouse(w.ax_over, target, -60.0, 501, 300))
+        assert w.ax_over.get_xlim() == pytest.approx(held), "a click must not pan"
+        assert abs(float(df.at[w.current, "peak_time_s"]) - target) < 0.05, (
+            "a click should jump to the nearest event")
+
+        # ...and a drag must not steal the selection, even if it starts on a
+        # marker: pick_event fires on PRESS, before a drag is distinguishable.
+        selected = w.current
+        w.on_press(mouse(w.ax_over, target, -60.0, 500, 300))
+        w.on_motion(mouse(w.ax_over, target - 1.0, -60.0, 400, 300))
+        w.on_release(mouse(w.ax_over, target - 1.0, -60.0, 400, 300))
+        assert w.current == selected, "a pan must not change the selected event"
+
+        w.reset_view()
         w.accept_current()
         w.reject_current()
         assert len(w.decisions) == 2
