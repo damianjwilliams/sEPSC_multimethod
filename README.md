@@ -189,6 +189,14 @@ methods there are 31 possible combinations and a colour per combination is
 unreadable; agreement count is one ordered number that maps onto a sequential
 scale, and it is what you actually scan for.
 
+**Expanding the trace.** Scroll to zoom about the cursor: no modifier zooms
+time and amplitude together, `ctrl` time only, `shift` amplitude only. Drag
+with the toolbar pan tool; `Home` (or `0`) resets. The raster **shares the
+trace's x axis**, so zooming into a burst up top narrows the raster to the same
+window and the per-method ticks stay aligned under it. The detail panel has its
+own axes and zooms independently, so you can magnify one event without losing
+your place in the recording.
+
 `A`/`R` accept or reject, autosaved after every decision to
 `<stem>_multimethod_reviewed.csv` and `..._review_progress.csv`, and resumed
 next time. "Accept all unanimous" is the safe bulk action.
@@ -217,6 +225,39 @@ interpreter paths and external commands, which are properties of a machine
 rather than of the analysis, so it is gitignored.
 
 ---
+
+## The analysis figures
+
+Written at the end of every run (`--no-plots` to skip):
+
+| Figure | Contents |
+|---|---|
+| `<stem>_multimethod_distributions.png` | amplitude, rise, decay, area and IEI - histogram **and** cumulative, every method overlaid |
+| `<stem>_multimethod_boxplots.png` | per method: box (median + IQR), whiskers, and **every individual event as a dot**, with n |
+| `<stem>_multimethod_waveforms.png` | peak-aligned average event per method, raw *and* peak-normalised |
+| `<stem>_multimethod_overview.png` | amplitude over time (stability), event frequency, agreement histogram, pairwise agreement matrix, amplitude by agreement level |
+
+**No bar-of-the-mean charts.** A bar with an error bar hides everything that
+matters about a synaptic amplitude distribution: it is skewed, truncated at the
+detection limit, and its interesting feature is usually a change in *shape*
+rather than in the mean - two very different distributions give the same bar.
+So wherever there is a distribution, this draws a box, whiskers, and every
+measurement as a jittered dot. Above 400 points per group the dots are
+subsampled for legibility; the box, the whiskers and the reported n always use
+every point.
+
+Bars survive in exactly two places, both pure counts - event frequency and the
+agreement histogram. A count has no distribution, and a box plot of one number
+would be worse than the bar rather than better.
+
+The cumulative panels are the ones to compare distributions on: a histogram's
+shape depends on its bin width, a CDF does not.
+
+One result worth looking for on your own data: in `_multimethod_overview.png`,
+median |amplitude| rises monotonically with agreement level (8 -> 13 -> 17 ->
+20 pA on the test recording). Events only one method finds are small events
+near the noise floor - the expected pattern, and a useful check that the
+consensus is behaving.
 
 ## Benchmark
 
@@ -279,6 +320,7 @@ multimethod/
     runner.py       run every detector, collect failures, write the tables
     settings.py     every parameter for every method, serialisable
     benchmark.py    planted ground truth and scoring
+    plots.py        the analysis figures (box + whisker + dots, no bar means)
     paramwindow.py  the parameter window (tabs generated from the dataclasses)
     review.py       the review window (who found what, on the trace)
     cli.py          `python -m multimethod <command>` dispatch
@@ -290,7 +332,7 @@ multimethod/
         external.py       the subprocess boundary; miniML + command adapters
         _miniml_worker.py runs in miniML's interpreter, never imported here
 
-tests/              61 tests: `pytest` from the repo root
+tests/              79 tests: `pytest` from the repo root
 ```
 
 ## Tests
@@ -300,7 +342,7 @@ pip install pytest
 pytest
 ```
 
-61 tests. The consensus matcher gets the most attention because it is this
+79 tests. The consensus matcher gets the most attention because it is this
 package's own logic rather than a wrapper: clusters must not chain, one method
 must not occupy a cluster twice, and the tolerance must actually change the
 answer. Each detector is checked to find planted events, to stay quiet on pure
@@ -308,6 +350,13 @@ noise, to survive a flat and an empty trace, and not to mutate the trace it was
 handed. The runner is checked to keep going when one detector fails, since with
 external detectors a partial run is the normal case. The GUI tests drive Qt
 through its offscreen platform and skip if PyQt5 is absent.
+
+The review window's zoom is tested through the pure `zoom_limits` / `zoom_axes`
+functions rather than by driving a window: the arithmetic - anchoring on the
+cursor, round-tripping exactly on zoom-in-then-out, clamping a stale anchor -
+is the part that can be wrong, and testing it directly makes the assertions
+exact. The trace/raster x-axis linkage does need a window, and is asserted on
+the shared-axes group in the one test that builds one.
 
 ## Credit
 

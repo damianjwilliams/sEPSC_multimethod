@@ -222,6 +222,19 @@ def test_review_window_builds_and_autosaves(tmp_path, monkeypatch):
                            reviewed, progress, tolerance_ms=s.tolerance_ms)
     try:
         assert len(w.visible_ids) == len(df)
+
+        # The linkage behind "zoom the trace and the raster follows": the two
+        # share an x axis, and the detail panel deliberately does not (it
+        # shows one event, not the run).
+        shared = w.ax_over.get_shared_x_axes()
+        assert shared.joined(w.ax_over, w.ax_raster), (
+            "the raster must share the trace's x axis, or zooming the trace "
+            "will not narrow the per-method ticks with it")
+        assert not shared.joined(w.ax_over, w.ax_detail)
+        w.ax_over.set_xlim(2.0, 4.0)
+        assert w.ax_raster.get_xlim() == pytest.approx((2.0, 4.0))
+        w.reset_view()
+
         w.accept_current()
         w.reject_current()
         assert len(w.decisions) == 2

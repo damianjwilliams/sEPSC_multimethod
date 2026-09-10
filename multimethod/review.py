@@ -21,6 +21,12 @@ Three panels, and the middle one is the point of this package.
 Accept/reject writes the same two files the sibling repos use, so a curated
 event list is interchangeable with theirs.
 
+Both the trace and the detail panel expand in time and in amplitude: scroll to
+zoom about the cursor, ctrl for time only, shift for amplitude only, drag with
+the toolbar's pan tool, Home (or the 0 key) to reset. The raster shares its x
+axis with the trace, so zooming into a burst up top narrows the raster to the
+same window automatically and the per-method ticks stay aligned under it.
+
 Design note: colouring by agreement count rather than by method is deliberate.
 With five methods there are 31 possible combinations, and a colour per
 combination is unreadable. Agreement count is one ordered number, it maps onto
@@ -53,6 +59,41 @@ def agreement_color(n: int, n_methods: int) -> str:
     frac = (n - 1) / max(n_methods - 1, 1)
     idx = int(round(frac * (len(AGREEMENT_COLORS) - 1)))
     return AGREEMENT_COLORS[min(max(idx, 0), len(AGREEMENT_COLORS) - 1)]
+
+
+#: One scroll notch. Small enough to feel continuous, large enough that a few
+#: notches cross a useful range on a ten-minute recording.
+ZOOM_STEP = 1.15
+
+
+def zoom_limits(lo: float, hi: float, anchor: float, zoom_in: bool,
+                step: float = ZOOM_STEP) -> tuple[float, float]:
+    """New (lo, hi) after one scroll notch, anchored on `anchor`.
+
+    Anchored rather than centred so zooming into a burst keeps the burst under
+    the pointer instead of sliding it out of view. `anchor` is clamped into
+    the current range, so a scroll event with stale coordinates cannot throw
+    the view somewhere unrelated.
+
+    Kept as a free function, with no axes and no Qt, so the behaviour is
+    testable without constructing a window.
+    """
+    if not (hi > lo):
+        return lo, hi
+    anchor = min(max(anchor, lo), hi)
+    scale = 1.0 / step if zoom_in else step
+    return (anchor - (anchor - lo) * scale,
+            anchor + (hi - anchor) * scale)
+
+
+def zoom_axes(key: str | None) -> tuple[bool, bool]:
+    """Which axes a scroll should zoom, given the held modifier.
+
+    (none) both · ctrl time only · shift amplitude only -- matching the
+    checker windows in the sibling repos.
+    """
+    k = (key or "").lower()
+    return ("shift" not in k, "control" not in k and "ctrl" not in k)
 
 
 def load_prior_decisions(reviewed_path: str, progress_path: str) -> dict:
@@ -138,6 +179,7 @@ class MethodReviewWindow:
 
         self.canvas.mpl_connect("pick_event", self.on_pick)
         self.canvas.mpl_connect("key_press_event", self.on_key)
+        self.canvas.mpl_connect("scroll_event", self.on_scroll)
 
     # -- data helpers ---------------------------------------------------
 
@@ -341,6 +383,41 @@ class MethodReviewWindow:
         times = self.df["peak_time_s"].to_numpy(dtype=float)
         self.show_event(int(np.argmin(np.abs(times - x))))
 
+    def on_scroll(self, event):
+        """Scroll to zoom, about the cursor, on whichever panel it is over.
+
+        Modifiers match the checker windows in the sibling repos:
+            (none)   zoom time and amplitude together
+            ctrl     time only
+            shift    amplitude only
+
+        Zooming the overview also zooms the raster, because the two share an x
+        axis -- which is the point of sharing it. Scrolling the raster does the
+        same in reverse. The detail panel has its own axes and zooms alone.
+
+        Anchored on the cursor rather than the axes centre so zooming in on a
+        burst keeps the burst under the pointer instead of sliding it away.
+        """
+        ax = event.inaxes
+        if ax is None:
+            return
+        zoom_in = event.button == "up"
+        zoom_x, zoom_y = zoom_axes(event.key)
+        if ax is self.ax_raster:
+            zoom_y = False              # its y axis is one row per method
+
+        if zoom_x and event.xdata is not None:
+            ax.set_xlim(*zoom_limits(*ax.get_xlim(), event.xdata, zoom_in))
+        if zoom_y and event.ydata is not None:
+            ax.set_ylim(*zoom_limits(*ax.get_ylim(), event.ydata, zoom_in))
+        self.canvas.draw_idle()
+
+    def reset_view(self, *_a):
+        """Back to the full trace, both axes, both linked panels."""
+        self._draw_overview()
+        self._draw_raster()
+        self.show_event(self.current)
+
     def on_key(self, event):
         key = (event.key or "").lower()
         vis = self.visible_ids
@@ -356,6 +433,8 @@ class MethodReviewWindow:
             self.accept_current()
         elif key in ("r", "down"):
             self.reject_current()
+        elif key in ("home", "0"):
+            self.reset_view()
 
     def _decide(self, accepted: bool):
         self.decisions[int(self.df.at[self.current, "event_id"])] = bool(accepted)

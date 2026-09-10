@@ -85,6 +85,9 @@ def cmd_run(argv) -> int:
                    help="open the parameter window before running")
     p.add_argument("--review", action="store_true",
                    help="open the review window when the run finishes")
+    p.add_argument("--no-plots", dest="plots", action="store_false",
+                   help="skip the analysis figures (they are written by default)")
+    p.set_defaults(plots=True)
     args = p.parse_args(argv)
 
     s = _load_settings(args)
@@ -114,6 +117,9 @@ def cmd_run(argv) -> int:
     for w in outcome.warnings:
         print(f"NOTE: {w}")
     written = outcome.write()
+    if args.plots and outcome.ran:
+        from .plots import write_all
+        written += write_all(outcome)
     print()
     for path in written:
         print(f"wrote {os.path.basename(path)}")
