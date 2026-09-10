@@ -63,13 +63,22 @@ class TemplateParams:
     analytic biexponential below if too few isolated events are found."""
 
     tau_rise_ms: float = 0.6
+    """Rise tau of the analytic template, ms. Used only when the estimated
+    template is switched off or unavailable."""
     tau_decay_ms: float = 6.0
+    """Decay tau of the analytic template, ms. Only the SHAPE matters --
+    the scale is fitted at every position -- so this need not match your
+    event amplitudes, only their kinetics."""
     template_ms: float = 30.0
     """Length of the analytic template, when the estimated one is not used."""
 
     direction: str = "negative"
+    """Event polarity: "negative" for inward currents, "positive" for
+    outward."""
     subtract_drift: bool = True
+    """Match the template against a drift-corrected trace."""
     drift_win_ms: float = 300.0
+    """Window for that rolling baseline, ms. See Measurement."""
 
 
 def detection_criterion(sv: np.ndarray, template: np.ndarray) -> np.ndarray:

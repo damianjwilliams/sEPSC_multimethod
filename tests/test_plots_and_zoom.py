@@ -78,6 +78,53 @@ def test_a_degenerate_range_is_returned_unchanged():
     assert zoom_limits(5.0, 1.0, 3.0, True) == (5.0, 1.0)
 
 
+def test_scroll_modifiers_reads_the_qt_state_when_event_key_is_none():
+    """The bug this fixes: matplotlib only fills MouseEvent.key from modifiers
+    it saw in a key_press_event on that canvas, so holding ctrl and scrolling
+    without clicking the canvas first gave key=None -- and both axes zoomed
+    regardless of the modifier. The Qt event always knows."""
+    import types
+
+    pytest.importorskip("PyQt5")
+    from PyQt5 import QtCore
+
+    from multimethod.review import scroll_modifiers
+
+    class FakeQtEvent:
+        def __init__(self, mods):
+            self._mods = mods
+
+        def modifiers(self):
+            return self._mods
+
+    cases = {
+        QtCore.Qt.NoModifier: (True, True),
+        QtCore.Qt.ControlModifier: (True, False),      # time only
+        QtCore.Qt.ShiftModifier: (False, True),        # amplitude only
+    }
+    for mods, expected in cases.items():
+        ev = types.SimpleNamespace(guiEvent=FakeQtEvent(mods), key=None)
+        assert zoom_axes(scroll_modifiers(ev)) == expected, mods
+
+
+def test_scroll_modifiers_falls_back_to_event_key():
+    """Without a Qt event -- a synthetic event, or another backend -- the
+    matplotlib key is still honoured."""
+    import types
+
+    from multimethod.review import scroll_modifiers
+
+    assert scroll_modifiers(types.SimpleNamespace(guiEvent=None, key="shift")) == "shift"
+    assert scroll_modifiers(types.SimpleNamespace(guiEvent=None, key=None)) == ""
+
+
+def test_holding_both_modifiers_zooms_both_rather_than_nothing():
+    """Asking for "time only" and "amplitude only" at once is a stray
+    modifier, not a request to freeze the view, and a scroll that visibly does
+    nothing reads as a bug."""
+    assert zoom_axes("control+shift") == (True, True)
+
+
 def test_modifiers_select_which_axes_zoom():
     assert zoom_axes(None) == (True, True), "no modifier: time and amplitude"
     assert zoom_axes("control") == (True, False), "ctrl: time only"

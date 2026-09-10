@@ -35,9 +35,22 @@ class Preprocessing:
     """
 
     enabled: bool = True
+    """Filter and resample before any detector runs. Off means the raw
+    sweep is used, which changes every SD-based threshold: an unfiltered
+    trace has a higher noise floor, so the same setting is stricter."""
     cutoff_hz: float = DEFAULT_CUTOFF_HZ
+    """Bessel low-pass corner, Hz. 3 kHz keeps sEPSC rise times intact
+    while removing the high-frequency noise that fragments events. Check
+    the amplifier's own filter first -- filtering at 3 kHz a trace already
+    filtered at 2 kHz does very little, and the run reports both."""
     target_rate_hz: float = DEFAULT_TARGET_RATE_HZ
+    """Decimate to roughly this sample rate, Hz. 10 kHz gives 0.1 ms
+    resolution, which is finer than any event feature measured here, and
+    cuts the work on a 50 kHz recording fivefold. Only whole-number
+    factors are used, so the achieved rate can differ slightly."""
     order: int = DEFAULT_ORDER
+    """Bessel filter order. Higher rolls off faster; Bessel is chosen for
+    its flat group delay, so event shape and timing survive."""
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)

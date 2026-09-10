@@ -97,6 +97,31 @@ def test_field_specs_drive_the_parameter_window():
         assert got == want, name
 
 
+def test_every_parameter_carries_an_explanation():
+    """The parameter window shows each field's docstring as visible help, so a
+    field without one appears in the window as a bare number with no
+    explanation. 37 of 64 were undocumented when the window was first built."""
+    s = Settings()
+    targets = [("preprocessing", s.preprocessing), ("measurement", s.measurement)]
+    targets += [(n, s.params_for(n)) for n in detectors.names()]
+    undocumented = []
+    for name, obj in targets:
+        for field, _, _, doc in field_specs(obj):
+            if not (doc or "").strip():
+                undocumented.append(f"{name}.{field}")
+    assert not undocumented, (
+        f"{len(undocumented)} parameter(s) have no explanation: {undocumented}")
+
+
+def test_every_detector_has_parameter_window_guidance():
+    """Each detector tab opens with what the method is good and bad at."""
+    from multimethod.paramwindow import DETECTOR_NOTES
+
+    for name in detectors.names():
+        assert name in DETECTOR_NOTES, f"{name} has no parameter-window notes"
+        assert len(DETECTOR_NOTES[name]) > 100, name
+
+
 def test_field_docstrings_become_tooltips():
     docs = {f: d for f, _, _, d in field_specs(Settings().params_for("deconvolution"))}
     assert "regularisation" in docs["reg"].lower()

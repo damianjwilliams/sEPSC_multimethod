@@ -56,8 +56,14 @@ class ThresholdParams:
     """
 
     direction: str = "negative"
+    """Event polarity. "negative" for inward currents -- sEPSCs and
+    sIPSCs in voltage clamp. "positive" for outward events."""
     subtract_drift: bool = True
+    """Detect against a slow rolling baseline rather than the raw level.
+    On a drifting trace this is what stops a slope from adding or
+    removing events at one end of the recording."""
     drift_win_ms: float = 300.0
+    """Window for that rolling baseline, ms. See Measurement."""
 
 
 class ThresholdDetector(Detector):

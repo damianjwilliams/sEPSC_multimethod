@@ -56,25 +56,55 @@ class DeconvolutionParams:
     reported sigma to enforce the Greger & Watson detection limit explicitly."""
 
     min_sep_ms: float = 1.5
+    """Closest two accepted impulses may be, ms. This is the real
+    temporal resolution: lower it to split events inside bursts, raise it
+    if one event is being reported twice."""
     smooth_ms: float = 0.3
+    """Boxcar smoothing of the deconvolved trace before peak-picking, ms.
+    Suppresses single-sample noise spikes that deconvolution amplifies."""
 
     kernel_max_ms: float = 400.0
+    """Longest window averaged when estimating the kernel, ms. An upper
+    bound only -- the kernel is cut at 8x its own measured decay."""
     kernel_tail_frac: float = 0.02
+    """Secondary cut: the averaged tail must stay below this fraction of
+    peak before the kernel is truncated there."""
     kernel_tail_run_ms: float = 2.0
+    """...and stay below it for this long, ms, so one noisy dip in the
+    average cannot truncate the kernel early."""
     kernel_pre_ms: float = 5.0
+    """Pre-peak window used to baseline each event before averaging, ms."""
     kernel_isolation_ms: float = 60.0
     """An event counts as isolated if nothing else is within this. RAISE IT for
     slow events -- see the module docstring."""
     kernel_min_snr: float = 5.0
+    """How large an event must be, in noise SDs, to be averaged into the
+    kernel. Only clean events should shape the kernel."""
     kernel_n_max: int = 300
+    """Most events averaged into the kernel. Beyond a few hundred the
+    average stops improving and estimation just takes longer."""
     kernel_smooth_ms: float = 0.4
+    """Smoothing applied to the averaged kernel, ms."""
     kernel_min_events: int = 5
+    """Below this many isolated events, give up on estimating a kernel and
+    use the analytic biexponential below instead. The run says which was
+    used -- an analytic fallback means the tau may not match your data."""
     fallback_tau_rise_ms: float = 0.6
+    """Rise tau of the analytic kernel, ms. Used only when estimation
+    found too few isolated events."""
     fallback_tau_decay_ms: float = 6.0
+    """Decay tau of the analytic kernel, ms. Used only on fallback; set it
+    to your own events' decay if the fallback is being hit."""
 
     direction: str = "negative"
+    """Event polarity: "negative" for inward currents, "positive" for
+    outward."""
     subtract_drift: bool = True
+    """Deconvolve a drift-corrected trace. Verified to leave F1 flat from
+    0 to +/-40 pA of drift."""
     drift_win_ms: float = 300.0
+    """Window for that rolling baseline, ms. Raise it with
+    kernel_isolation_ms for slow events, or the tracker eats the decay."""
 
 
 def biexp_kernel(dt: float, tau_rise_ms: float = 0.6, tau_decay_ms: float = 6.0,

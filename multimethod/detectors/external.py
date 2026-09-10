@@ -82,8 +82,13 @@ class MiniMLParams:
     """
 
     batch_size: int = 512
+    """Windows per inference batch. Larger is faster and uses more
+    memory; it does not change the result."""
     direction: str = "negative"
+    """Event polarity passed to miniML: "negative" for inward currents."""
     timeout_s: float = 900.0
+    """Give up on the subprocess after this long, s. miniML on CPU takes
+    roughly 30 s per minute of recording, so allow generously."""
     extra_args: str = ""
     """Passed through to the worker verbatim, for miniML flags not exposed here."""
 
@@ -174,11 +179,22 @@ class CommandParams:
     """
 
     command: str = ""
+    """Command to run. {abf}, {channel} and {stem} are substituted.
+    Example:  C:/env/python.exe -m sepsc fastmini {abf}"""
     csv_glob: str = "{stem}_fastmini_events.csv"
+    """Where to find the CSV the command leaves behind. Same
+    substitutions; the newest match is read if several exist."""
     time_column: str = "location_s"
+    """Column in that CSV holding each event position. Times are the only
+    thing read from it -- everything else is measured here, so this
+    detector is comparable with the rest."""
     time_in_samples: bool = False
+    """Tick if that column is in SAMPLES rather than seconds. Getting this
+    wrong scales every event position by the sample rate."""
     cwd: str = ""
+    """Working directory for the command. Leave blank to inherit."""
     timeout_s: float = 1800.0
+    """Give up on the command after this long, s."""
     enabled: bool = False
     """Off by default: an unconfigured command detector should not appear to
     fail on every run. Turn it on once `command` points somewhere real."""

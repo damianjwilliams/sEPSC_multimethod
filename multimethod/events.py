@@ -80,6 +80,9 @@ class MeasurementParams:
     Without this, a drifting trace biases every amplitude by slope x window."""
 
     drift_win_ms: float = 300.0
+    """Window for the rolling-percentile baseline, ms. Must stay well
+    above the event decay: too short and the tracker follows the events
+    themselves, flattening the very deflections being measured."""
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)

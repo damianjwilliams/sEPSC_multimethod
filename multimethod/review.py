@@ -21,11 +21,16 @@ Three panels, and the middle one is the point of this package.
 Accept/reject writes the same two files the sibling repos use, so a curated
 event list is interchangeable with theirs.
 
-Both the trace and the detail panel expand in time and in amplitude: scroll to
-zoom about the cursor, ctrl for time only, shift for amplitude only, drag with
-the toolbar's pan tool, Home (or the 0 key) to reset. The raster shares its x
-axis with the trace, so zooming into a burst up top narrows the raster to the
-same window automatically and the per-method ticks stay aligned under it.
+Both the trace and the detail panel expand in time and in amplitude, and
+the two axes are independently controllable:
+
+    scroll           zoom time and amplitude together
+    ctrl  + scroll   stretch the TIME base only
+    shift + scroll   stretch the AMPLITUDE axis only
+
+Drag with the toolbar pan tool; Home (or the 0 key) resets. The raster
+shares the trace's x axis, so zooming into a burst up top narrows the
+raster to the same window and the per-method ticks stay aligned under it.
 
 Design note: colouring by agreement count rather than by method is deliberate.
 With five methods there are 31 possible combinations, and a colour per
@@ -86,14 +91,60 @@ def zoom_limits(lo: float, hi: float, anchor: float, zoom_in: bool,
             anchor + (hi - anchor) * scale)
 
 
-def zoom_axes(key: str | None) -> tuple[bool, bool]:
-    """Which axes a scroll should zoom, given the held modifier.
+def scroll_modifiers(event) -> str:
+    """Which modifier keys were held during a scroll, as a lowercase string.
 
-    (none) both · ctrl time only · shift amplitude only -- matching the
-    checker windows in the sibling repos.
+    Reads the Qt event first, and only then falls back to matplotlib's
+    `event.key`.
+
+    That order is the whole reason this function exists. matplotlib populates
+    MouseEvent.key only from modifiers it has already seen in a key_press_event
+    on that canvas, so holding ctrl and scrolling -- without having clicked the
+    canvas first to give it keyboard focus -- yields key=None and the modifier
+    is silently ignored, leaving both axes zooming together. The Qt event
+    carries the real modifier state unconditionally, so it is authoritative
+    whenever it is present.
+    """
+    gui = getattr(event, "guiEvent", None)
+    if gui is not None and hasattr(gui, "modifiers"):
+        try:
+            from PyQt5 import QtCore
+
+            mods = gui.modifiers()
+            parts = []
+            if mods & QtCore.Qt.ControlModifier:
+                parts.append("control")
+            if mods & QtCore.Qt.ShiftModifier:
+                parts.append("shift")
+            if mods & QtCore.Qt.AltModifier:
+                parts.append("alt")
+            return "+".join(parts)
+        except Exception:            # noqa: BLE001 - fall back to event.key
+            pass
+    return (getattr(event, "key", None) or "").lower()
+
+
+def zoom_axes(key: str | None) -> tuple[bool, bool]:
+    """Which axes a scroll should zoom, given the held modifier(s).
+
+    Returns (zoom_time, zoom_amplitude):
+
+        (none)   both axes together
+        ctrl     TIME only       -- stretch the time base, amplitude fixed
+        shift    AMPLITUDE only  -- stretch the current axis, time fixed
+
+    matching the checker windows in the sibling repos.
+
+    Holding ctrl AND shift zooms both, rather than nothing. Asking for "time
+    only" and "amplitude only" at once is a stray modifier, not a request to
+    freeze the view, and a scroll that visibly does nothing reads as a bug.
     """
     k = (key or "").lower()
-    return ("shift" not in k, "control" not in k and "ctrl" not in k)
+    ctrl = "control" in k or "ctrl" in k
+    shift = "shift" in k
+    if ctrl and shift:
+        return True, True
+    return (not shift, not ctrl)
 
 
 def load_prior_decisions(reviewed_path: str, progress_path: str) -> dict:
@@ -402,7 +453,7 @@ class MethodReviewWindow:
         if ax is None:
             return
         zoom_in = event.button == "up"
-        zoom_x, zoom_y = zoom_axes(event.key)
+        zoom_x, zoom_y = zoom_axes(scroll_modifiers(event))
         if ax is self.ax_raster:
             zoom_y = False              # its y axis is one row per method
 

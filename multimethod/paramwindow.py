@@ -2,10 +2,16 @@
 
 Each detector gets a tab, generated from its own params dataclass rather than
 hand-written: a new parameter appears here as soon as it exists on the
-dataclass, with its field docstring as the tooltip. That is the whole reason
-`settings.field_specs` exists -- a hand-maintained form would drift from the
-dataclasses within a release or two, and a parameter window that silently omits
-a parameter is worse than none.
+dataclass. That is the whole reason `settings.field_specs` exists -- a
+hand-maintained form would drift from the dataclasses within a release or two,
+and a parameter window that silently omits a parameter is worse than none.
+
+Every parameter carries its explanation as a VISIBLE label under the field,
+not only as a tooltip. A tooltip has to be hunted for: you have to know it is
+there and hover the right widget. The text is the field's own docstring, so
+the window cannot drift from the code, and `tests` fails if any parameter
+loses its explanation. Each detector tab also opens with what that method is
+good at, what it is bad at, and which knob to reach for first.
 
 Three tabs come first, because they apply to every method and getting them
 wrong invalidates the comparison:
@@ -86,6 +92,86 @@ def _read_widget(QtWidgets, w, tp, original):
     return text
 
 
+#: Longer per-detector guidance for the parameter window: what each method is
+#: good at, what it is bad at, and which knob to reach for first. Kept here
+#: rather than in `Detector.blurb` because the blurb also has to fit on one
+#: line of the `methods` command and in the README table.
+DETECTOR_NOTES = {
+    "threshold": (
+        "Every accept or reject traces to a parameter you set, which is why "
+        "this is the method to reach for when you need to explain a "
+        "count.<br>"
+        "<b>Weak at:</b> events close together. Only the tallest peak in each "
+        "<i>search local max</i> window can be a candidate, so a small event "
+        "beside a large one is never considered.<br>"
+        "<b>Tune first:</b> <tt>amplitude sd</tt>, then "
+        "<tt>search local max ms</tt> \u2014 too short and one event is "
+        "reported several times."),
+    "deconvolution": (
+        "Nothing here needs re-tuning per cell: the kernel comes from the "
+        "recording and the thresholds are in units of its own noise.<br>"
+        "<b>Strong at:</b> overlapping events, and not fragmenting decay "
+        "tails.<br>"
+        "<b>Weak at:</b> slow events. Above about 25 ms decay tau nothing is "
+        "genuinely isolated, so the estimated kernel becomes unstable \u2014 "
+        "the run warns when that happens.<br>"
+        "<b>Tune first:</b> <tt>thresh sd</tt>; for slow events raise "
+        "<tt>kernel isolation ms</tt>."),
+    "template": (
+        "The scale and offset are fitted at every position, so only the "
+        "template's <i>shape</i> matters \u2014 not its amplitude, and not "
+        "the local baseline.<br>"
+        "<b>Strong at:</b> small events buried in noise.<br>"
+        "<b>Weak at:</b> kinetics unlike the template, and correlated noise "
+        "\u2014 the standard error assumes independent samples, which "
+        "low-pass filtering breaks.<br>"
+        "<b>Tune first:</b> <tt>criterion threshold</tt> (14 here, not the "
+        "textbook 3\u20135, because this package filters by default), then "
+        "<tt>min sep ms</tt>."),
+    "miniml": (
+        "A trained network, so it has no thresholds to tune \u2014 but it "
+        "also cannot explain a call, and it inherits whatever its training "
+        "data contained.<br>"
+        "<b>Note:</b> the shipped models were trained on cerebellar granule "
+        "cell mEPSCs. On a different preparation it is running "
+        "out-of-distribution, which is a good reason to compare it against "
+        "the others rather than trust it alone.<br>"
+        "<b>Tune first:</b> <tt>threshold</tt>; leave "
+        "<tt>window ms</tt> at 12 unless you know the model wants otherwise."),
+    "fastmini": (
+        "A generic adapter: it runs whatever command you give it and reads "
+        "event times out of the CSV that command leaves behind. Only the "
+        "times are used \u2014 everything else is measured here, so the "
+        "result stays comparable with the other methods.<br>"
+        "<b>Set up:</b> tick <tt>enabled</tt>, give a <tt>command</tt>, and "
+        "check <tt>time column</tt> matches your CSV."),
+}
+
+HELP_STYLE = "color:#6b6b6b; font-size:8pt;"
+
+
+def _add_fields(QtWidgets, form, obj, entries: dict) -> None:
+    """One row per field: the editor, then its explanation underneath.
+
+    The explanation is a visible label rather than only a tooltip. A tooltip
+    has to be hunted for -- you have to know it is there and hover the right
+    widget -- and these parameters are exactly the ones nobody should have to
+    guess at. The text is the field's own docstring, so the window and the
+    code cannot drift apart.
+    """
+    for name, tp, value, doc in field_specs(obj):
+        w = _make_widget(QtWidgets, name, tp, value, doc)
+        label = QtWidgets.QLabel(name.replace("_", " ") + ":")
+        label.setToolTip(doc)
+        form.addRow(label, w)
+        if doc:
+            help_label = QtWidgets.QLabel(doc)
+            help_label.setWordWrap(True)
+            help_label.setStyleSheet(HELP_STYLE)
+            form.addRow("", help_label)
+        entries[name] = (w, tp, value)
+
+
 def edit_settings(settings: Settings | None = None,
                   abf_path: str = "", channel: int = 0,
                   config_path: str | None = None):
@@ -93,7 +179,7 @@ def edit_settings(settings: Settings | None = None,
 
     None means cancelled -- the caller must not run anything.
     """
-    from PyQt5 import QtWidgets
+    from PyQt5 import QtCore, QtWidgets
 
     s = settings or Settings()
     # Keep a live reference: an unassigned QApplication([]) can be collected
@@ -139,11 +225,9 @@ def edit_settings(settings: Settings | None = None,
             lbl.setWordWrap(True)
             lay.addWidget(lbl)
         form = QtWidgets.QFormLayout()
+        form.setLabelAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         entries = {}
-        for name, tp, value, doc in field_specs(obj):
-            w = _make_widget(QtWidgets, name, tp, value, doc)
-            form.addRow(name.replace("_", " ") + ":", w)
-            entries[name] = (w, tp, value)
+        _add_fields(QtWidgets, form, obj, entries)
         lay.addLayout(form)
         lay.addStretch(1)
         scroll = QtWidgets.QScrollArea()
@@ -154,23 +238,49 @@ def edit_settings(settings: Settings | None = None,
 
     add_dataclass_tab(
         "Preprocessing", s.preprocessing, "__pre__",
-        "Applied ONCE, before any detector runs, so every method sees the same "
-        "trace. Changing it changes the output filenames, so two differently "
-        "preprocessed runs cannot overwrite each other.")
+        "<b>Applied once, before any detector runs</b>, so every method sees "
+        "exactly the same trace \u2014 otherwise their event times would not be "
+        "comparable and the consensus table would be meaningless.<br><br>"
+        "These settings go into the output filenames, so two differently "
+        "preprocessed runs cannot overwrite each other, and the review window "
+        "rebuilds the same trace from them.<br><br>"
+        "<i>Filtering also moves every SD-based threshold, because it lowers "
+        "the noise floor. If you switch it off, expect the detectors to become "
+        "more permissive.</i>")
     add_dataclass_tab(
         "Measurement", s.measurement, "__meas__",
-        "How an event is quantified once a detector has located it. Shared by "
-        "every method on purpose: if each reported its own amplitude, the "
-        "amp_* columns would not be comparable across methods and an apparent "
-        "difference could just be two conventions.")
+        "<b>How an event is quantified once a detector has located it</b> "
+        "\u2014 amplitude, rise, decay, area. Shared by every method on "
+        "purpose.<br><br>"
+        "Each detector has its own idea of what an amplitude is (a peak "
+        "average against a fixed window, a model's own baseline, a fitted "
+        "scale factor). If each reported its own number, the <tt>amp_*</tt> "
+        "columns could not be compared and \u201cmethod A finds smaller "
+        "events\u201d might just be two conventions. So detection is "
+        "per-method and measurement is shared, and a disagreement in the "
+        "output is a disagreement about detection alone.<br><br>"
+        "<i>Definitions follow the Mini Analysis conventions, so the numbers "
+        "match the sibling minianalysis repo.</i>")
 
     # -- consensus ------------------------------------------------------
     cons_page = QtWidgets.QWidget()
     cons_lay = QtWidgets.QFormLayout(cons_page)
     cons_note = QtWidgets.QLabel(
-        "Two methods count as having found the same event if their peaks are "
-        "within this. It is a real choice, not a constant: the agreement "
-        "numbers move with it, so it is written into the run sidecar.")
+        "<b>Two methods count as having found the same event if their peaks "
+        "fall within this of each other.</b><br><br>"
+        "Detectors put the peak of one event a sample or two apart \u2014 "
+        "different smoothing, different snapping \u2014 so an exact match "
+        "would report near-total disagreement even where they agree "
+        "perfectly.<br><br>"
+        "This is a real choice, not a constant: <b>every agreement number in "
+        "the output moves with it</b>, which is why it is recorded in the run "
+        "sidecar. Widen it and methods look more alike; narrow it and they "
+        "look more independent.<br><br>"
+        "<i>Two rules keep it honest regardless: clusters cannot chain (each "
+        "detection must be within tolerance of the cluster mean), and one "
+        "method cannot occupy a cluster twice \u2014 so a method that "
+        "fragments one event into three does not look like three methods "
+        "agreeing.</i>")
     cons_note.setWordWrap(True)
     cons_lay.addRow(cons_note)
     tol = QtWidgets.QDoubleSpinBox()
@@ -188,7 +298,10 @@ def edit_settings(settings: Settings | None = None,
         page = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(page)
 
-        head = QtWidgets.QLabel(f"<b>{det.label}</b><br>{det.blurb}")
+        notes = DETECTOR_NOTES.get(name, "")
+        head = QtWidgets.QLabel(
+            f"<b>{det.label}</b><br>{det.blurb}"
+            + (f"<br><br>{notes}" if notes else ""))
         head.setWordWrap(True)
         lay.addWidget(head)
 
@@ -208,11 +321,9 @@ def edit_settings(settings: Settings | None = None,
             lay.addWidget(status)
 
         form = QtWidgets.QFormLayout()
+        form.setLabelAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         entries = {}
-        for fname, tp, value, doc in field_specs(params):
-            w = _make_widget(QtWidgets, fname, tp, value, doc)
-            form.addRow(fname.replace("_", " ") + ":", w)
-            entries[fname] = (w, tp, value)
+        _add_fields(QtWidgets, form, params, entries)
         lay.addLayout(form)
         lay.addStretch(1)
         widgets[name] = entries

@@ -189,9 +189,21 @@ methods there are 31 possible combinations and a colour per combination is
 unreadable; agreement count is one ordered number that maps onto a sequential
 scale, and it is what you actually scan for.
 
-**Expanding the trace.** Scroll to zoom about the cursor: no modifier zooms
-time and amplitude together, `ctrl` time only, `shift` amplitude only. Drag
-with the toolbar pan tool; `Home` (or `0`) resets. The raster **shares the
+**Expanding the trace, each axis independently.**
+
+| Input | Effect |
+|---|---|
+| scroll | zoom time **and** amplitude together |
+| `ctrl` + scroll | stretch the **time base** only |
+| `shift` + scroll | stretch the **amplitude** axis only |
+| drag (toolbar pan) | pan |
+| `Home` or `0` | reset |
+
+Zoom is anchored on the cursor, so magnifying a burst keeps it under the
+pointer. The modifier state is read from Qt rather than from matplotlib's
+`event.key`, which is only populated once the canvas has seen a key press --
+reading it meant holding `ctrl` and scrolling did nothing unless you had
+clicked the canvas first. The raster **shares the
 trace's x axis**, so zooming into a burst up top narrows the raster to the same
 window and the per-method ticks stay aligned under it. The detail panel has its
 own axes and zooms independently, so you can magnify one event without losing
