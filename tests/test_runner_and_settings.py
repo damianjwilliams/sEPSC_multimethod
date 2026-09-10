@@ -155,6 +155,51 @@ def test_run_one_turns_a_detector_exception_into_a_failed_result(monkeypatch):
     assert "synthetic failure" in res.message
 
 
+def test_a_failing_detector_keeps_its_diagnostics(monkeypatch):
+    """A detector that fails is exactly when its diagnostics matter.
+
+    The external detectors stash the worker's traceback and stderr there, and
+    the failure path used to drop them -- leaving the run sidecar with a
+    one-line message and no way to find the cause.
+    """
+    trace, _ = synth_trace(duration_s=3.0, seed=1)
+    det = detectors.get("template")
+
+    def boom(self, trace, params):
+        self.last_diagnostics = {
+            "traceback": "line 1\nline 2\nthe real cause",
+            "python_exe": "/some/python"}
+        raise RuntimeError("synthetic failure")
+
+    monkeypatch.setattr(type(det), "find", boom)
+    res = runner.run_one(trace, "template", Settings())
+    assert res.ok is False
+    assert "the real cause" in res.diagnostics.get("traceback", "")
+    assert res.diagnostics.get("python_exe") == "/some/python"
+
+
+def test_the_sidecar_keeps_a_failure_traceback_in_full(tmp_path, monkeypatch):
+    """Multi-line strings must survive _jsonable: a truncated traceback is
+    worth about as much as none."""
+    trace, _ = synth_trace(duration_s=5.0, seed=1)
+    monkeypatch.setattr(runner, "load", lambda *a, **k: trace)
+    det = detectors.get("template")
+    long_tb = "\n".join(f"  frame {i}" for i in range(40)) + "\nValueError: boom"
+
+    def boom(self, trace, params):
+        self.last_diagnostics = {"traceback": long_tb}
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(type(det), "find", boom)
+    out = runner.run_all(str(tmp_path / "rec.abf"), 0, Settings(),
+                         methods=["threshold", "template"])
+    out.write()
+    side = json.load(open(out.stem + runner.RUN_SUFFIX, encoding="utf-8"))
+    got = side["methods"]["template"]["diagnostics"]["traceback"]
+    assert got == long_tb, "the traceback must reach the sidecar intact"
+    assert "ValueError: boom" in got
+
+
 def test_a_failing_detector_does_not_stop_the_others(tmp_path, monkeypatch):
     import dataclasses
 

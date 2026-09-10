@@ -143,7 +143,11 @@ def _jsonable(d: dict) -> dict:
                 out[k] = v.tolist()
             else:
                 out[k] = f"<array, {v.size} values>"
-        elif isinstance(v, (int, float, str, bool)) or v is None:
+        elif isinstance(v, str):
+            # Tracebacks and stderr tails are multi-line strings and are the
+            # whole point of the failure sidecar, so they are kept in full.
+            out[k] = v
+        elif isinstance(v, (int, float, bool)) or v is None:
             out[k] = v
         elif isinstance(v, (np.integer, np.floating)):
             out[k] = v.item()
@@ -164,9 +168,15 @@ def run_one(trace: Trace, method: str, settings: Settings) -> DetectorResult:
     try:
         idxs = det.find(trace, params)
     except Exception as exc:                     # noqa: BLE001 - reported, not raised
+        # Keep the diagnostics on the FAILURE path too. A detector that fails
+        # is precisely when its diagnostics matter -- the external ones stash
+        # the worker's traceback and stderr there -- and dropping them left
+        # the sidecar with a one-line message and no way to find the cause.
         return DetectorResult(method=method, ok=False,
                               message=f"{type(exc).__name__}: {exc}",
-                              elapsed_s=time.perf_counter() - started)
+                              elapsed_s=time.perf_counter() - started,
+                              diagnostics=dict(
+                                  getattr(det, "last_diagnostics", {}) or {}))
     events, unmeasurable = measure_all(trace, idxs, settings.measurement, method)
     return DetectorResult(
         method=method, ok=True, events=events,

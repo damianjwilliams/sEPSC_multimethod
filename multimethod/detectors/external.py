@@ -46,6 +46,28 @@ from .base import Detector
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_miniml_worker.py")
 
 
+def _tail(text: str | None, n: int) -> str:
+    """The last n non-blank lines of a stream, for a failure report."""
+    lines = [L for L in (text or "").splitlines() if L.strip()]
+    return "\n".join(lines[-n:])
+
+
+def _last_meaningful_line(*streams) -> str:
+    """The most informative single line from a dead child's output.
+
+    Prefers a line that looks like an exception over the last line, because
+    TensorFlow prints pages of INFO after the real error and the final line is
+    usually noise.
+    """
+    lines = []
+    for stream in streams:
+        lines += [L.strip() for L in (stream or "").splitlines() if L.strip()]
+    for line in reversed(lines):
+        if "Error" in line or "error:" in line.lower() or "Exception" in line:
+            return line
+    return lines[-1] if lines else "(the worker printed nothing)"
+
+
 def _times_to_indices(times_s, trace: Trace) -> np.ndarray:
     """Event times in seconds -> sample indices in OUR trace.
 
@@ -156,14 +178,41 @@ class MiniMLDetector(Detector):
                                   capture_output=True, text=True,
                                   timeout=params.timeout_s)
             if not os.path.exists(out_path):
-                tail = (proc.stderr or proc.stdout or "").strip().splitlines()
-                hint = tail[-1] if tail else f"exit code {proc.returncode}"
-                raise RuntimeError(f"miniML worker produced no result: {hint}")
+                # The child died before it could report anything -- a missing
+                # dependency, an import error, or a hard crash. Everything
+                # useful is in its stderr, so keep it rather than reducing the
+                # whole failure to one line.
+                self.last_diagnostics = {
+                    "python_exe": exe,
+                    "returncode": proc.returncode,
+                    "stderr_tail": _tail(proc.stderr, 40),
+                    "stdout_tail": _tail(proc.stdout, 10),
+                }
+                raise RuntimeError(
+                    f"the miniML worker produced no result (exit "
+                    f"{proc.returncode}). Interpreter: {exe}\n"
+                    f"{_last_meaningful_line(proc.stderr, proc.stdout)}\n"
+                    f"The worker's full stderr is in the run sidecar under "
+                    f"methods.miniml.diagnostics.stderr_tail.")
             with open(out_path, encoding="utf-8") as fh:
                 result = json.load(fh)
 
         if not result.get("ok"):
-            raise RuntimeError(result.get("error", "miniML worker failed"))
+            # The worker caught its own exception and reported it, traceback
+            # and all. Keep the traceback: without it the message is often
+            # just a type name, and the cause is three frames down inside
+            # miniML or TensorFlow.
+            self.last_diagnostics = {
+                "python_exe": exe,
+                "error": result.get("error", ""),
+                "traceback": result.get("traceback", ""),
+                "stderr_tail": _tail(proc.stderr, 40),
+            }
+            raise RuntimeError(
+                f"{result.get('error', 'the miniML worker failed')}\n"
+                f"Interpreter: {exe}\n"
+                f"Full traceback is in the run sidecar under "
+                f"methods.miniml.diagnostics.traceback.")
         self.last_diagnostics = {k: v for k, v in result.items()
                                  if k not in ("event_times_s",)}
         return _times_to_indices(result.get("event_times_s", []), trace)
