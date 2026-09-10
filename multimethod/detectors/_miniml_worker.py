@@ -14,7 +14,7 @@ parent arrives in the request JSON.
 
 Request keys: abf_path, channel, preprocessing{enabled,cutoff_hz,
 target_rate_hz,order}, model_path, threshold, window_ms, batch_size,
-direction, extra_args, out_path.
+direction, extra_args, miniml_rate_hz, use_legacy_baseline, out_path.
 
 It always writes out_path, even on failure, with {"ok": false, "error": ...} --
 the parent distinguishes "detector reported a problem" from "child died
@@ -63,9 +63,22 @@ def detect(req):
         sos = bessel(int(pre.get("order", 8)), float(pre.get("cutoff_hz", 3000.0)),
                      btype="low", fs=fs, output="sos")
         v = sosfiltfilt(sos, v)
-        factor = max(1, int(round(fs / float(pre.get("target_rate_hz", 10000.0)))))
-        v = v[::factor]
-        fs = fs / factor
+        # Decimate toward miniML's OWN native rate, not the package-wide
+        # target. The rest of the package resamples to 10 kHz because that is
+        # ample for measuring an event; miniML is different, because its
+        # internal arithmetic is in samples and its shipped models were
+        # trained at 50 kHz with a 600-sample window. Decimating a 100 kHz
+        # recording to 10 kHz leaves a 12 ms window only 120 samples long,
+        # which starves the model and breaks miniML's own baseline code.
+        #
+        # This does NOT make the results incomparable: the only thing crossing
+        # back is event times in seconds, and the parent re-measures every
+        # event on its own trace.
+        target = float(req.get("miniml_rate_hz") or 50_000.0)
+        factor = max(1, int(round(fs / target)))     # never upsample
+        if factor > 1:
+            v = v[::factor]
+            fs = fs / factor
 
     from miniml import EventDetection
     from miniml.core.trace import MiniTrace
@@ -84,6 +97,19 @@ def detect(req):
     # same span of signal whatever this recording's rate is.
     window_size = max(16, int(round(float(req["window_ms"]) / 1000.0 * fs)))
 
+    # miniML's legacy baseline routine computes int(window_size * 0.1 / 10) and
+    # then halves it, so below 200 samples that is 0 and the baseline slice is
+    # empty -- mean([]) is NaN and miniML raises "Baseline could not be
+    # determined". Say so here rather than letting it fail six frames down.
+    legacy = bool(req.get("use_legacy_baseline", False))
+    if legacy and window_size < 200:
+        raise ValueError(
+            f"window is {window_size} samples at {fs:.0f} Hz, and miniML's "
+            f"legacy baseline method needs at least 200 (it computes "
+            f"int(window*0.1/10)//2, which is 0 below that, giving an empty "
+            f"baseline slice). Either leave use_legacy_baseline off, or raise "
+            f"miniml_rate_hz so the window spans more samples.")
+
     detection = EventDetection(
         data=trace,
         model_path=model_path,
@@ -94,9 +120,13 @@ def detect(req):
         compile_model=True,
         verbose=0,
     )
+    # use_legacy_baseline_method=False by default: the v2 routine floors every
+    # window size at 3 samples and cannot produce the empty slice the legacy
+    # one does. The legacy flag was inherited from an older driver script and
+    # is what made this fail on a 100 kHz recording.
     detection.detect_events(eval=True, peak_w=5, rel_prom_cutoff=0.25,
                             convolve_win=15, gradient_convolve_win=40,
-                            use_legacy_baseline_method=True)
+                            use_legacy_baseline_method=legacy)
 
     times = _event_times(detection, fs)
     return {
@@ -106,6 +136,7 @@ def detect(req):
         "sample_rate_hz": fs,
         "window_samples": window_size,
         "window_ms": float(req["window_ms"]),
+        "use_legacy_baseline": legacy,
         "model_path": model_path,
         "miniml_threshold": float(req["threshold"]),
     }

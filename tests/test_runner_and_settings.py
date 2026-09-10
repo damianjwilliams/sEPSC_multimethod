@@ -130,6 +130,42 @@ def test_field_docstrings_become_tooltips():
 
 # ----------------------------------------------------------------- runner
 
+def test_miniml_defaults_avoid_the_empty_baseline_slice():
+    """Regression guard for a real failure on a 100 kHz recording.
+
+    miniML's LEGACY per-event baseline computes int(window*0.1/10) and halves
+    it, so with fewer than 200 window samples that is 0, the baseline slice is
+    empty, mean([]) is NaN, and miniML raises "Baseline could not be
+    determined". Two defaults keep us clear of it, and either alone suffices:
+
+      * the v2 baseline routine, which floors every size at 3 samples
+      * a 50 kHz target for miniML, giving a 12 ms window 600 samples long
+
+    Flipping either back reintroduces the failure, so both are asserted.
+    """
+    p = Settings().params_for("miniml")
+    assert p.use_legacy_baseline is False, (
+        "the legacy baseline routine produces an empty slice below 200 "
+        "window samples")
+    assert p.miniml_rate_hz >= 20_000.0, (
+        "miniML's models were trained at 50 kHz and its arithmetic is in "
+        "samples; the package-wide 10 kHz target leaves a 12 ms window only "
+        "120 samples long")
+    window_samples = p.window_ms / 1000.0 * p.miniml_rate_hz
+    assert window_samples >= 200, f"{window_samples:.0f} samples is too few"
+
+
+def test_miniml_request_carries_the_rate_and_baseline_choice():
+    """Both settings have to reach the worker, or they are decoration."""
+    import inspect
+
+    from multimethod.detectors import external
+
+    src = inspect.getsource(external.MiniMLDetector.find)
+    assert '"miniml_rate_hz"' in src
+    assert '"use_legacy_baseline"' in src
+
+
 def test_run_one_reports_an_unavailable_detector_instead_of_raising():
     import dataclasses
 

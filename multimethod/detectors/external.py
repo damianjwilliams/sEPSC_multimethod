@@ -103,6 +103,23 @@ class MiniMLParams:
     for the recording's actual rate.
     """
 
+    miniml_rate_hz: float = 50_000.0
+    """Sample rate to give miniML, Hz. Its shipped models were trained at
+    50 kHz, and its internal arithmetic is in samples, so this is deliberately
+    NOT the package-wide 10 kHz target: decimating a 100 kHz recording to
+    10 kHz leaves a 12 ms window only 120 samples long, which starves the
+    model and trips miniML's own baseline code. A recording slower than this
+    is never upsampled. Only event times cross back, so this does not make
+    miniML's results incomparable with the other methods."""
+
+    use_legacy_baseline: bool = False
+    """Use miniML's older per-event baseline routine.
+
+    Off by default. The legacy routine computes int(window*0.1/10) and halves
+    it, so below 200 window samples that is 0, the baseline slice is empty,
+    and miniML raises "Baseline could not be determined". The v2 routine
+    floors every size at 3 samples and cannot do that."""
+
     batch_size: int = 512
     """Windows per inference batch. Larger is faster and uses more
     memory; it does not change the result."""
@@ -166,6 +183,8 @@ class MiniMLDetector(Detector):
             "batch_size": params.batch_size,
             "direction": params.direction,
             "extra_args": params.extra_args,
+            "miniml_rate_hz": params.miniml_rate_hz,
+            "use_legacy_baseline": params.use_legacy_baseline,
         }
         with tempfile.TemporaryDirectory() as tmp:
             out_path = os.path.join(tmp, "result.json")

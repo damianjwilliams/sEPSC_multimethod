@@ -109,6 +109,16 @@ python -m multimethod methods       # says whether it was found
 If it wasn't, set `python_exe` in **Parameters ▸ miniml**, or in the config
 file. A conda env named `clampex_miniml` is auto-detected.
 
+**miniML gets its own sample rate.** The rest of the package resamples to
+10 kHz, which is ample for measuring an event. miniML is different: its
+internal arithmetic is in samples and its shipped models were trained at 50 kHz
+with a 600-sample window, so it is given 50 kHz (`miniml_rate_hz`) and never
+upsampled above the recording's own rate. Decimating a 100 kHz recording to
+10 kHz would leave a 12 ms window only 120 samples long, which starves the
+model and trips miniML's own baseline code. This does not make its results
+incomparable: only event times cross the subprocess boundary, and every event
+is re-measured here.
+
 ### Wiring up any other detector
 
 `fastmini` is a generic external adapter: give it a command and tell it which
