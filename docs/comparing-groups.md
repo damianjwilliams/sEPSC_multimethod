@@ -296,8 +296,13 @@ discrepancy in §3 arose. See [the README](../README.md#the-config-file-and-why-
 ## 9. Suggested workflow
 
 ```bash
-# 1. One run per cell, all methods, identical parameters
-python -m multimethod run CELL.abf
+# 1. One run per cell, all methods, identical parameters.
+#    For a whole folder, select the right protocol rather than the right
+#    filenames -- and look before you choose the substring:
+python -m multimethod batch FOLDER --list
+python -m multimethod batch FOLDER --protocol gap_free
+#    multimethod_batch_summary.csv is then the per-cell table steps 3-5 need,
+#    keyed on the absolute file path, with noise_sd already in it.
 
 # 2. Confirm nothing unexpected was in effect
 #    (each run prints this, and stores it under config_source)

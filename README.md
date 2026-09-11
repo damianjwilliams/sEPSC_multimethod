@@ -14,6 +14,8 @@ python launch.py                          # parameter window -> run all -> revie
 python launch.py --defaults               # ...pre-filled with the built-in values
 python run_all.py recording.abf           # headless; add --gui for the window first
 python review_methods.py recording.abf    # who found what, on the trace
+python -m multimethod batch FOLDER --list # what protocols are in this folder?
+python -m multimethod batch FOLDER --protocol gap_free   # run the ones that match
 python -m multimethod benchmark           # score the in-repo methods on planted events
 python -m multimethod methods             # what can run on this machine
 python -m multimethod calibrate FOLDER    # set defaults from your own data
@@ -362,6 +364,58 @@ median |amplitude| rises monotonically with agreement level (8 -> 13 -> 17 ->
 near the noise floor - the expected pattern, and a useful check that the
 consensus is behaving.
 
+## Running a whole folder, by protocol
+
+A day's folder holds every protocol you ran. Only some are the gap-free sEPSC
+recordings, and the recording knows which it is -- pCLAMP writes the protocol
+name into the ABF header. So the selector is the protocol, matched by a
+case-insensitive **substring**, rather than a filename convention you have to
+maintain.
+
+```bash
+python -m multimethod batch FOLDER --list                 # look first
+python -m multimethod batch FOLDER --protocol gap --dry-run
+python -m multimethod batch FOLDER --protocol gap
+```
+
+`--list` reads headers only, so it is near-instant even on a large folder --
+88 recordings survey in about a second:
+
+```
+protocol                                        n
+--------------------------------------------------
+DW_Ra                                          55
+DW_IC_IV                                       20
+IC_IV                                           8
+DW_Gap_free_-70_mV                              5
+```
+
+Each recording gets the usual per-recording files, plus one
+**`multimethod_batch_summary.csv`** for the folder. Its first column is the
+**absolute file path** -- everything downstream joins on it, and a bare
+filename is not unique across a folder tree. Then the protocol, duration,
+**`noise_sd`** and its 4-sigma limit, `n_` and `rate_..._hz` per method,
+consensus and unanimous counts, which methods ran, which failed, and the output
+stem.
+
+Three things it refuses to do quietly:
+
+- **A multi-sweep protocol is skipped, with the sweep count as the reason.**
+  This package reads sweep 0 of a gap-free recording; analysing the first sweep
+  of a 50-sweep IV protocol is a wrong answer, which is worse than a missing
+  one. On the folder above that guard alone holds back 55 `DW_Ra` files.
+- **A substring spanning two protocols is flagged.** `IC_IV` matches both
+  `IC_IV` and `DW_IC_IV`; pooling them silently would merge two experiments.
+- **One bad file costs one row, not the batch.** Failures become rows with a
+  reason, and the summary is rewritten after every recording, so an interrupted
+  run keeps what it already did.
+
+It finishes by reporting the spread of `noise_sd` across the set, and points at
+the document below when that spread is wide enough to matter -- which on real
+data it usually is.
+
+---
+
 ## Comparing groups
 
 Before using this for a genotype or treatment comparison, read
@@ -488,6 +542,7 @@ multimethod/
     settings.py     every parameter for every method, serialisable
     benchmark.py    planted ground truth and scoring
     calibrate.py    set the defaults from a folder of real recordings
+    batch.py        run a folder, selected by protocol name
     plots.py        the analysis figures (box + whisker + dots, no bar means)
     paramwindow.py  the parameter window (tabs generated from the dataclasses)
     review.py       the review window (who found what, on the trace)
@@ -509,7 +564,7 @@ docs/
     floor_search.py        noise in isolation, where a floor fixes it, and
     sigma_cutoff.py        what a sigma exclusion costs
 
-tests/             149 tests: `pytest` from the repo root
+tests/             171 tests: `pytest` from the repo root
 ```
 
 ## Tests

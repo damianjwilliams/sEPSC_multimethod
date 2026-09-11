@@ -20,6 +20,7 @@ COMMANDS = {
     "launch": "Parameter window first, then run, then review",
     "benchmark": "Score the in-repo detectors against planted events",
     "methods": "List the detectors and whether each one can run here",
+    "batch": "Run a whole folder, choosing recordings by their protocol name",
     "calibrate": "Set the defaults from your own recordings instead of a fixture",
 }
 
@@ -217,6 +218,103 @@ def cmd_benchmark(argv) -> int:
     return 0
 
 
+def cmd_batch(argv) -> int:
+    from .batch import (BATCH_SUMMARY_NAME, describe_selection, match,
+                        noise_report, protocols, run_folder, survey)
+
+    p = argparse.ArgumentParser(prog="python -m multimethod batch",
+                                description=COMMANDS["batch"])
+    p.add_argument("folder", help="folder of .abf recordings")
+    p.add_argument("--protocol", default="",
+                   help="run only recordings whose protocol name contains this "
+                        "(case-insensitive substring); omit to run all of them")
+    p.add_argument("--list", action="store_true",
+                   help="list the protocols present and exit, running nothing")
+    p.add_argument("--dry-run", action="store_true",
+                   help="show which recordings would run, and stop")
+    p.add_argument("--recursive", action="store_true",
+                   help="include subfolders")
+    p.add_argument("--channel", type=int, default=0)
+    p.add_argument("--config", default=None)
+    p.add_argument("--defaults", action="store_true",
+                   help="ignore any config file")
+    p.add_argument("--methods", default=None,
+                   help="comma-separated subset, e.g. threshold,deconvolution")
+    p.add_argument("--no-filter", action="store_true",
+                   help="skip the Bessel low-pass + resample")
+    p.add_argument("--plots", action="store_true",
+                   help="write the per-recording figures too (off by default "
+                        "here: on a large folder they dominate the runtime)")
+    p.add_argument("--out", default=None,
+                   help=f"where to write the summary "
+                        f"(default: {BATCH_SUMMARY_NAME} in the folder)")
+    args = p.parse_args(argv)
+    if not os.path.isdir(args.folder):
+        p.error(f"not a folder: {args.folder}")
+
+    recs = survey(args.folder, args.recursive)
+    if not recs:
+        print(f"No .abf files in {args.folder}"
+              + ("" if args.recursive else " (try --recursive)"))
+        return 1
+
+    # --list first, because choosing a substring without seeing the protocols
+    # is how a batch ends up analysing seal tests.
+    if args.list:
+        print(f"{len(recs)} recording(s) in {os.path.abspath(args.folder)}")
+        print()
+        print(f"{'protocol':<44} {'n':>4}")
+        print("-" * 50)
+        for name, n in protocols(recs).items():
+            print(f"{name:<44} {n:>4}")
+        print()
+        print('Run one with:  --protocol "part of the name"')
+        return 0
+
+    selected = match(recs, args.protocol)
+    print(describe_selection(recs, selected, args.protocol))
+    if not selected:
+        print()
+        print("Nothing matched. The protocols present are:")
+        for name, n in protocols(recs).items():
+            print(f"    {name}  ({n})")
+        return 1
+
+    runnable = [r for r in selected if not r.usable]
+    if args.dry_run:
+        print()
+        print(f"--dry-run: {len(runnable)} recording(s) would be analysed")
+        for r in runnable:
+            print(f"    {r.path}")
+        return 0
+    if not runnable:
+        print()
+        print("Nothing runnable in that selection.")
+        return 1
+
+    s, source = _load_settings(args)
+    print()
+    print(source.describe())
+    print()
+    # methods=None on purpose: _load_settings has already turned --methods
+    # into per-detector enabled flags, and run_all reads those.
+    df = run_folder(args.folder, args.protocol, s, args.channel, methods=None,
+                    recursive=args.recursive, plots=args.plots,
+                    out_path=args.out, config_source=source,
+                    progress=lambda m: print(m, flush=True))
+
+    out_path = args.out or os.path.join(args.folder, BATCH_SUMMARY_NAME)
+    ok = (df["status"] == "ok").sum() if not df.empty else 0
+    print()
+    print(f"{ok} of {len(df)} recording(s) analysed")
+    report = noise_report(df)
+    if report:
+        print(report)
+    print()
+    print(f"wrote {out_path}")
+    return 0 if ok else 1
+
+
 def cmd_methods(argv) -> int:
     p = argparse.ArgumentParser(prog="python -m multimethod methods",
                                 description=COMMANDS["methods"])
@@ -289,8 +387,8 @@ def cmd_calibrate(argv) -> int:
 
 
 HANDLERS = {"run": cmd_run, "review": cmd_review, "launch": cmd_launch,
-            "benchmark": cmd_benchmark, "methods": cmd_methods,
-            "calibrate": cmd_calibrate}
+            "batch": cmd_batch, "benchmark": cmd_benchmark,
+            "methods": cmd_methods, "calibrate": cmd_calibrate}
 
 
 def main(argv=None) -> int:
