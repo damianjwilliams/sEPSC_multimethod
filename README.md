@@ -11,7 +11,8 @@ agree, where they don't, and what the disputed events actually look like.
 
 ```
 python launch.py                          # parameter window -> run all -> review
-python run_all.py recording.abf           # run every method, write the tables
+python launch.py --defaults               # ...pre-filled with the built-in values
+python run_all.py recording.abf           # headless; add --gui for the window first
 python review_methods.py recording.abf    # who found what, on the trace
 python -m multimethod benchmark           # score the in-repo methods on planted events
 python -m multimethod methods             # what can run on this machine
@@ -254,6 +255,25 @@ One tab per method, plus three that apply to all of them:
 - **Measurement** — how an event is quantified, shared by all methods
 - **Consensus** — how close two methods must be to count as agreeing
 
+It opens before anything runs, with a tab per method plus three shared ones --
+**Preprocessing, Measurement, Consensus, threshold, deconvolution, template,
+autoclassifier, miniml, fastmini** -- every field pre-filled and editable, an
+enable checkbox per method, and OK / Cancel / Save as defaults / Reset to
+defaults. Cancel runs nothing. Reach it with:
+
+```bash
+python launch.py                       # the front door
+python launch.py --defaults            # pre-filled with the built-in values
+python run_all.py recording.abf --gui  # same window, then run
+```
+
+Pre-filled *from whatever settings were resolved* — which is a config file if
+one exists, not necessarily the built-in defaults. The banner at the top of the
+window says which, and `--defaults` opens it on the values the package ships
+with, leaving any config file untouched. Without that flag there is no way to
+see the built-in values once a config exists, because a calibrated 0.5 ms in a
+spin box looks exactly like a default.
+
 Each tab is generated from that detector's own params dataclass, with the field
 docstrings as tooltips. A new parameter shows up in the window as soon as it
 exists on the dataclass — a hand-written form would drift, and a parameter
@@ -489,7 +509,7 @@ docs/
     floor_search.py        noise in isolation, where a floor fixes it, and
     sigma_cutoff.py        what a sigma exclusion costs
 
-tests/             135 tests: `pytest` from the repo root
+tests/             149 tests: `pytest` from the repo root
 ```
 
 ## Tests

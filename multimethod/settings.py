@@ -82,6 +82,12 @@ class ConfigSource:
     differs from a stock `Settings()`. Empty when the file matches the defaults,
     which is worth saying too: it means the file is inert."""
 
+    ignored: bool = False
+    """True when a config file was present but deliberately not read, because
+    the user asked for the built-in defaults. Reported rather than silent: a
+    file sitting there having no effect is exactly as confusing as one having
+    an unannounced effect."""
+
     @property
     def in_effect(self) -> bool:
         return self.exists and bool(self.overrides)
@@ -89,6 +95,12 @@ class ConfigSource:
     def describe(self) -> str:
         """One block of text, safe to print before every command."""
         name = os.path.basename(self.path)
+        if self.ignored:
+            return (f"Parameters: built-in defaults (--defaults given; "
+                    f"{name} is present but not being read)."
+                    if self.exists else
+                    f"Parameters: built-in defaults (--defaults given; "
+                    f"there is no {name} anyway).")
         if not self.exists:
             return f"Parameters: built-in defaults (no {name})."
         where = "--config" if self.explicit else "found beside the package"
@@ -111,6 +123,7 @@ class ConfigSource:
         return {"path": os.path.abspath(self.path) if self.exists else self.path,
                 "exists": self.exists,
                 "explicit": self.explicit,
+                "ignored": self.ignored,
                 "overrides": {k: {"builtin": was, "in_effect": now}
                               for k, was, now in self.overrides}}
 
@@ -127,15 +140,24 @@ def describe_source(settings: "Settings", path: str, exists: bool,
                         overrides=overrides)
 
 
-def load_with_source(path: str | None = None) -> tuple["Settings", ConfigSource]:
+def load_with_source(path: str | None = None,
+                     ignore: bool = False) -> tuple["Settings", ConfigSource]:
     """`Settings.load`, plus what it loaded and how that differs from default.
 
     Prefer this over `Settings.load` anywhere a human is watching: it is the
     only way a command can tell the user that a config file is in effect.
+
+    `ignore=True` returns the built-in defaults without reading the file, and
+    says so. That is what `--defaults` is for: the parameter window pre-fills
+    from whatever this returns, so without it there is no way to open the
+    window on the values the package actually ships with.
     """
     explicit = path is not None
     resolved = path or default_config_path()
     exists = os.path.exists(resolved)
+    if ignore:
+        return Settings(), ConfigSource(path=resolved, exists=exists,
+                                        explicit=explicit, ignored=True)
     settings = Settings.load(resolved)
     return settings, describe_source(settings, resolved, exists, explicit)
 

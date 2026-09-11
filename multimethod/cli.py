@@ -48,6 +48,10 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--config", default=None,
                    help="settings JSON (default: multimethod.config.json "
                         "beside the package, if it exists)")
+    p.add_argument("--defaults", action="store_true",
+                   help="ignore any config file and start from the built-in "
+                        "defaults (with --gui, opens the window pre-filled "
+                        "with them)")
 
 
 def _load_settings(args):
@@ -59,7 +63,7 @@ def _load_settings(args):
     """
     from .settings import load_with_source
 
-    s, source = load_with_source(args.config)
+    s, source = load_with_source(args.config, getattr(args, "defaults", False))
     if getattr(args, "no_filter", False):
         s.preprocessing = type(s.preprocessing)(**{**s.preprocessing.as_dict(),
                                                    "enabled": False})
@@ -102,7 +106,7 @@ def cmd_run(argv) -> int:
     abf, channel = args.abf, args.channel
     if args.gui or not abf:
         from .paramwindow import edit_settings
-        picked = edit_settings(s, abf, channel, args.config)
+        picked = edit_settings(s, abf, channel, args.config, source=source)
         if picked is None:
             print("Cancelled — nothing run.")
             return 0
@@ -217,10 +221,12 @@ def cmd_methods(argv) -> int:
     p = argparse.ArgumentParser(prog="python -m multimethod methods",
                                 description=COMMANDS["methods"])
     p.add_argument("--config", default=None)
+    p.add_argument("--defaults", action="store_true",
+                   help="ignore any config file")
     args = p.parse_args(argv)
 
     from .settings import load_with_source
-    s, source = load_with_source(args.config)
+    s, source = load_with_source(args.config, args.defaults)
     print(source.describe())
     print()
     print(f"{'method':<14} {'kind':<9} {'status':<9} description")
@@ -247,6 +253,9 @@ def cmd_calibrate(argv) -> int:
     p.add_argument("--min-methods", type=int, default=None,
                    help="how many methods must agree for an event to be pooled "
                         "(default: all that ran)")
+    p.add_argument("--defaults", action="store_true",
+                   help="propose against the built-in defaults rather than "
+                        "against whatever a config file currently says")
     p.add_argument("--rerun", action="store_true",
                    help="re-run detection instead of reading existing results")
     p.add_argument("--write", action="store_true",
@@ -256,7 +265,7 @@ def cmd_calibrate(argv) -> int:
         p.error(f"not a folder: {args.folder}")
 
     from .settings import load_with_source
-    s, source = load_with_source(args.config)
+    s, source = load_with_source(args.config, args.defaults)
     # Calibration reads the CURRENT settings -- the widen-only rule compares
     # against them -- so which file they came from changes what it proposes.
     print(source.describe())

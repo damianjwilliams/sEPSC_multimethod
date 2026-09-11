@@ -186,7 +186,8 @@ def _add_fields(QtWidgets, form, obj, entries: dict) -> None:
         entries[name] = (w, tp, value)
 
 
-def describe_settings_origin(settings: Settings, config_path: str | None) -> str:
+def describe_settings_origin(settings: Settings, config_path: str | None,
+                             ignored: bool = False) -> str:
     """One line for the dialog: are these the built-in defaults or not?
 
     Mirrors `ConfigSource.describe` for the GUI, where a terminal message is
@@ -197,6 +198,15 @@ def describe_settings_origin(settings: Settings, config_path: str | None) -> str
 
     resolved = config_path or default_config_path()
     exists = os.path.exists(resolved)
+    if ignored:
+        # Without this branch the banner would compare built-in defaults
+        # against built-in defaults, find no difference, and report the config
+        # file as merely inert -- when in fact it is being skipped.
+        if exists:
+            return (f"Built-in defaults (--defaults). "
+                    f"{os.path.basename(resolved)} is present but is not being "
+                    f"read; \"Save as defaults\" would overwrite it.")
+        return "These are the package's built-in defaults."
     src = describe_source(settings, resolved, exists, config_path is not None)
     if not src.overrides:
         if not exists:
@@ -210,10 +220,14 @@ def describe_settings_origin(settings: Settings, config_path: str | None) -> str
 
 def edit_settings(settings: Settings | None = None,
                   abf_path: str = "", channel: int = 0,
-                  config_path: str | None = None):
+                  config_path: str | None = None, source=None):
     """Open the parameter window. Returns (settings, abf_path, channel) or None.
 
     None means cancelled -- the caller must not run anything.
+
+    `source` is the caller's `ConfigSource`, used only for the banner. Passing
+    it matters when the caller resolved the settings in a way the window cannot
+    infer from `config_path` alone -- `--defaults` being the case in point.
     """
     from PyQt5 import QtCore, QtWidgets
 
@@ -231,7 +245,8 @@ def edit_settings(settings: Settings | None = None,
     # resolved, which may be a config file written on some earlier day. Saying
     # so is the whole point: a user who sees "6.00" in a box has no way to know
     # whether that is the package default or a value calibrated last month.
-    banner = QtWidgets.QLabel(describe_settings_origin(s, config_path))
+    banner = QtWidgets.QLabel(describe_settings_origin(
+        s, config_path, getattr(source, "ignored", False)))
     banner.setWordWrap(True)
     banner.setStyleSheet("QLabel { color: #555; padding: 2px 0 6px 0; }")
     outer.addWidget(banner)
@@ -408,7 +423,7 @@ def edit_settings(settings: Settings | None = None,
 
     def on_save():
         path = harvest().save(config_path)
-        banner.setText(describe_settings_origin(harvest(), path))
+        banner.setText(describe_settings_origin(harvest(), path, ignored=False))
         QtWidgets.QMessageBox.information(
             dialog, "Saved", f"Defaults written to\n{path}\n\n"
             "Every later command picks this file up automatically, including "
