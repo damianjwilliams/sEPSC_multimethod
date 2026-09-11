@@ -128,6 +128,20 @@ DETECTOR_NOTES = {
         "<b>Tune first:</b> <tt>criterion threshold</tt> (14 here, not the "
         "textbook 3\u20135, because this package filters by default), then "
         "<tt>min sep ms</tt>."),
+    "autoclassifier": (
+        "The only detector here that uses no labels and no template: it "
+        "encodes short windows, clusters them into states, and calls an event "
+        "where the trace enters the state that looks like an onset.<br>"
+        "<b>Strong at:</b> small events -- it beats every other method here at "
+        "SNR 4 on planted data -- and it cannot inherit a labelling bias.<br>"
+        "<b>Weak at:</b> knowing when there is nothing to find. Clustering "
+        "always returns states, so <tt>min state rise sd</tt> exists to ask "
+        "whether any of them actually looks like an event; without it the "
+        "method fires on pure noise. Recall is also its lowest score.<br>"
+        "<b>Note:</b> an adaptation of Pircher et al. 2022, not a port -- the "
+        "encoder here is linear (PCA) rather than an autoencoder, and the rule "
+        "naming the onset state is this package's.<br>"
+        "<b>Tune first:</b> <tt>n clusters</tt>, then <tt>min sep ms</tt>."),
     "miniml": (
         "A trained network, so it has no thresholds to tune \u2014 but it "
         "also cannot explain a call, and it inherits whatever its training "

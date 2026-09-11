@@ -44,6 +44,7 @@ METHOD_COLORS = {
     "threshold": "#c97a2a",
     "deconvolution": "#2c7fb8",
     "template": "#7a3b9a",
+    "autoclassifier": "#0f8b8d",
     "miniml": "#2a8f2a",
     "fastmini": "#b5443a",
 }

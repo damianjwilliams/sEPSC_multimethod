@@ -26,13 +26,21 @@ python -m multimethod methods             # what can run on this machine
 | `threshold` | in-repo | Local maxima at least (c) apart, kept if they clear an amplitude threshold. The Synaptosoft **Mini Analysis** method. Fully explainable. |
 | `deconvolution` | in-repo | Estimates the event waveform from *this* recording and deconvolves by it, so each event becomes a sharp impulse ([Pernía-Andrade 2012](https://pubmed.ncbi.nlm.nih.gov/23062335/)). Separates overlapping events; nothing to tune per cell. |
 | `template` | in-repo | Fits an optimally-scaled template at every sample and thresholds scale/SE ([Clements & Bekkers 1997](https://pmc.ncbi.nlm.nih.gov/articles/PMC1180923/)). What Clampfit implements. |
+| `autoclassifier` | in-repo | **Unsupervised**: encodes short windows, clusters them into states, detects the state transition an onset makes ([Pircher 2022](https://doi.org/10.1371/journal.pone.0273501)). No labels, no template. |
 | `miniml` | **external** | CNN-LSTM deep-learning classifier ([O'Neill 2025, eLife](https://elifesciences.org/articles/98485)). Runs in its own interpreter. |
 | `fastmini` | **external** | Any detector you can run as a command. Pre-wired for a per-recording MLP. |
 
 They fail *differently*, which is the point. The threshold detector fragments
 decay tails; deconvolution is strongest on overlap; template matching is a
 matched filter, so it reaches smaller events but is sensitive to kinetics it
-wasn't built for.
+wasn't built for; the autoclassifier uses no labels or template at all, so it
+cannot inherit a labelling bias -- but it also has no way to know that the
+structure it found is synaptic rather than the recording's own noise texture.
+
+`autoclassifier` is an **adaptation** of Pircher et al., not a port of their
+`openseapy` (which is GitHub-only, needs a second GitHub-only package, and has
+no CLI). Its encoder is linear (PCA) rather than an autoencoder, and the rule
+naming the onset state is this package's. See the module docstring.
 
 ### Why two of them run in another interpreter
 
@@ -358,11 +366,12 @@ multimethod/
         base.py           what a detector is; DetectorResult
         threshold.py      classical Mini Analysis
         deconvolution.py  Pernía-Andrade, data-estimated kernel
-        template.py       Clements & Bekkers
+    template.py       Clements & Bekkers
+        autoclassifier.py unsupervised state clustering (Pircher, adapted)
         external.py       the subprocess boundary; miniML + command adapters
         _miniml_worker.py runs in miniML's interpreter, never imported here
 
-tests/              79 tests: `pytest` from the repo root
+tests/             103 tests: `pytest` from the repo root
 ```
 
 ## Tests
@@ -372,7 +381,7 @@ pip install pytest
 pytest
 ```
 
-79 tests. The consensus matcher gets the most attention because it is this
+103 tests. The consensus matcher gets the most attention because it is this
 package's own logic rather than a wrapper: clusters must not chain, one method
 must not occupy a cluster twice, and the tolerance must actually change the
 answer. Each detector is checked to find planted events, to stay quiet on pure

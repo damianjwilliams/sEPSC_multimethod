@@ -12,6 +12,7 @@ external ones last -- because the runner reports progress in this order and a
 
 from __future__ import annotations
 
+from .autoclassifier import AutoclassifierDetector, AutoclassifierParams
 from .base import Detector, DetectorResult, params_as_dict, params_from_dict
 from .deconvolution import DeconvolutionDetector, DeconvolutionParams
 from .external import CommandDetector, CommandParams, MiniMLDetector, MiniMLParams
@@ -31,7 +32,7 @@ def register(detector: Detector) -> Detector:
 
 
 for _d in (ThresholdDetector(), DeconvolutionDetector(), TemplateDetector(),
-           MiniMLDetector(), CommandDetector()):
+           AutoclassifierDetector(), MiniMLDetector(), CommandDetector()):
     register(_d)
 
 
@@ -57,6 +58,7 @@ __all__ = [
     "ThresholdDetector", "ThresholdParams",
     "DeconvolutionDetector", "DeconvolutionParams",
     "TemplateDetector", "TemplateParams",
+    "AutoclassifierDetector", "AutoclassifierParams",
     "MiniMLDetector", "MiniMLParams",
     "CommandDetector", "CommandParams",
 ]

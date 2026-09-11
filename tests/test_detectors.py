@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+
 import numpy as np
 import pytest
 
@@ -113,6 +115,81 @@ def test_deconvolution_kernel_lengthens_for_slower_decay():
     det.find(slow, p)
     k_slow = det.last_diagnostics["kernel_ms"]
     assert k_slow > k_fast, f"{k_slow:.1f} ms should exceed {k_fast:.1f} ms"
+
+
+def test_autoclassifier_reports_nothing_when_no_state_looks_like_an_event():
+    """An unsupervised clusterer cannot say "there are no events here": given
+    pure noise it still finds k states and one still rises most. Without the
+    state gate this detector fired at ~70 Hz on noise alone."""
+    trace, _ = synth_trace(duration_s=20.0, rate_hz=0.0, noise_sd_pa=2.0, seed=5)
+    det = detectors.get("autoclassifier")
+    assert len(det.find(trace, Settings().params_for("autoclassifier"))) == 0
+    d = det.last_diagnostics
+    assert "skipped" in d, "it should say why it found nothing"
+    assert d["state_rise_sd"] < 1.0
+
+
+def test_autoclassifier_state_rise_separates_signal_from_noise():
+    """The gate works because the measure is not marginal: on planted data the
+    winning state rises ~8 noise SDs, on noise alone ~0.06. Anything between
+    would do, which is why the default is not delicate."""
+    det = detectors.get("autoclassifier")
+    p = Settings().params_for("autoclassifier")
+
+    with_events, _ = synth_trace(duration_s=20.0, rate_hz=5.0, noise_sd_pa=2.0, seed=5)
+    det.find(with_events, p)
+    signal_rise = det.last_diagnostics["state_rise_sd"]
+
+    noise_only, _ = synth_trace(duration_s=20.0, rate_hz=0.0, noise_sd_pa=2.0, seed=5)
+    det.find(noise_only, p)
+    noise_rise = det.last_diagnostics["state_rise_sd"]
+
+    assert signal_rise > 4.0, signal_rise
+    assert noise_rise < 1.0, noise_rise
+    assert signal_rise > 10 * noise_rise, "the gate should not be marginal"
+
+
+def test_autoclassifier_is_reproducible():
+    """It is seeded, so the same recording must give the same events -- an
+    unreproducible detector cannot be reviewed."""
+    trace, _ = synth_trace(duration_s=15.0, seed=3)
+    det = detectors.get("autoclassifier")
+    p = Settings().params_for("autoclassifier")
+    first = det.find(trace, p)
+    second = det.find(trace, p)
+    assert np.array_equal(first, second)
+
+
+def test_autoclassifier_uses_no_labels_and_no_template():
+    """Its whole reason for being here: no labels, no template, no trained
+    model. If it grew any of those it would stop failing differently from the
+    other methods, which is the only reason to carry a fifth detector.
+
+    Checked by parsing rather than grepping: the module's docstring discusses
+    keras and torch (explaining why the encoder is linear instead), and a
+    substring search matches that prose.
+    """
+    import ast
+
+    from multimethod.detectors import autoclassifier
+
+    tree = ast.parse(io.open(autoclassifier.__file__, encoding="utf-8").read())
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    for banned in ("sklearn", "keras", "tensorflow", "torch"):
+        assert banned not in imported, (
+            f"{banned} would make this a trained detector, and would add a "
+            f"dependency for one method")
+
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    names |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    for banned in ("biexp_kernel", "estimate_kernel", "model_path"):
+        assert banned not in names, (
+            f"{banned} would give this detector a template or a model")
 
 
 def test_template_criterion_peaks_at_a_planted_event():
