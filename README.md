@@ -342,6 +342,20 @@ median |amplitude| rises monotonically with agreement level (8 -> 13 -> 17 ->
 near the noise floor - the expected pattern, and a useful check that the
 consensus is behaving.
 
+## Comparing groups
+
+Before using this for a genotype or treatment comparison, read
+**[docs/comparing-groups.md](docs/comparing-groups.md)**. The short version:
+the cell is the unit of analysis, and a difference in recording noise alone
+produces a 30-38% frequency change and a ~65% amplitude change on real
+recordings here -- in a self-consistent direction that reads as a real
+phenotype. The document derives the shared amplitude floor that corrects it
+(it is detector-specific, and higher than 4 sigma), and prices sigma as a
+cell-exclusion criterion. Every figure in it is reproduced by the three
+scripts beside it.
+
+---
+
 ## Calibrating the defaults to your own data
 
 ```bash
@@ -467,7 +481,15 @@ multimethod/
         external.py       the subprocess boundary; miniML + command adapters
         _miniml_worker.py runs in miniML's interpreter, never imported here
 
-tests/             120 tests: `pytest` from the repo root
+docs/
+    comparing-groups.md  using this for a genotype comparison: the noise
+                         confound, the shared amplitude floor, sigma as an
+                         exclusion criterion, and what is still manual
+    noise_effect.py      the measurements that document cites, rerunnable:
+    floor_search.py        noise in isolation, where a floor fixes it, and
+    sigma_cutoff.py        what a sigma exclusion costs
+
+tests/             135 tests: `pytest` from the repo root
 ```
 
 ## Tests
