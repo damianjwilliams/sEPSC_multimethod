@@ -265,6 +265,50 @@ rather than of the analysis, so it is gitignored.
 
 ---
 
+## The config file, and why every command announces it
+
+`multimethod.config.json` beside the package is picked up automatically by
+every command. Two things write it: the parameter window's "Save as defaults"
+button, and `calibrate --write`.
+
+That convenience has a sharp edge, and it drew blood here. A config written by
+`calibrate --write` was in effect for later runs, and those runs gave no sign
+of it — an 11.13 pA amplitude floor arriving from an earlier day changed
+deconvolution's event count by 11% with nothing on screen to say why. The
+values were in each run's sidecar, so nothing was unrecoverable, but
+*recoverable afterwards* is not *visible at the time*.
+
+So no command loads settings without reporting them. Every run, `methods`,
+`review`, and `calibrate` starts with either
+
+```
+Parameters: built-in defaults (no multimethod.config.json).
+```
+
+or the file, named, with every value that differs from the built-in default:
+
+```
+Parameters: multimethod.config.json (found beside the package) overrides 6 built-in default(s):
+    detectors.deconvolution.min_amp_abs            0.0 -> 11.13
+    detectors.template.tau_decay_ms                6.0 -> 1.73
+    tolerance_ms                                   3.0 -> 0.5
+    ...
+  This file is picked up automatically. To run on the built-in defaults, rename it or pass --config
+  with a different path.
+```
+
+The same fact is recorded under `config_source` in each run's
+`_multimethod_run.json`, so a result on disk can be traced to the file that
+shaped it — not just to the values, but to where they came from. A config that
+exists but matches the defaults is reported as inert rather than passed over in
+silence, and a path you gave with `--config` is stated without the warning,
+since you asked for it.
+
+To go back to the built-in defaults, rename or delete the file. Nothing deletes
+it for you; the fix here was to make it loud, not to take the feature away.
+
+---
+
 ## The analysis figures
 
 Written at the end of every run (`--no-plots` to skip):
@@ -342,6 +386,11 @@ The thresholds that trade precision against recall (`amplitude_sd`,
 alone. To set those you need ground truth: review a recording, and its
 `*_multimethod_reviewed.csv` becomes a labelled set that can drive miniML
 transfer learning (~400 events is enough) or an Eventer-style classifier.
+
+`--write` saves the proposals to `multimethod.config.json`, which then applies
+to every later command whether or not it mentions the file. Each of those
+commands says so on start — see [the config file
+section](#the-config-file-and-why-every-command-announces-it).
 
 ## Benchmark
 

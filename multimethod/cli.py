@@ -51,9 +51,15 @@ def _add_common(p: argparse.ArgumentParser) -> None:
 
 
 def _load_settings(args):
-    from .settings import Settings
+    """Settings for this invocation, plus where they came from.
 
-    s = Settings.load(args.config)
+    Returns `(settings, source)`. Callers are expected to print
+    `source.describe()` before doing any work: a config file that changes every
+    parameter of a run must not be invisible in that run's output.
+    """
+    from .settings import load_with_source
+
+    s, source = load_with_source(args.config)
     if getattr(args, "no_filter", False):
         s.preprocessing = type(s.preprocessing)(**{**s.preprocessing.as_dict(),
                                                    "enabled": False})
@@ -67,7 +73,7 @@ def _load_settings(args):
                              f"known: {detectors.names()}")
         for name in detectors.names():
             s.enabled[name] = name in wanted
-    return s
+    return s, source
 
 
 def cmd_run(argv) -> int:
@@ -91,7 +97,8 @@ def cmd_run(argv) -> int:
     p.set_defaults(plots=True)
     args = p.parse_args(argv)
 
-    s = _load_settings(args)
+    s, source = _load_settings(args)
+    print(source.describe())
     abf, channel = args.abf, args.channel
     if args.gui or not abf:
         from .paramwindow import edit_settings
@@ -105,9 +112,10 @@ def cmd_run(argv) -> int:
     if not os.path.isfile(abf):
         p.error(f"no such file: {abf}")
 
+    print()
     print(f"Running on {os.path.basename(abf)} — {s.preprocessing.describe()}")
-    outcome = run_all(abf, channel, s, progress=lambda r: print(r.status_line(),
-                                                               flush=True))
+    outcome = run_all(abf, channel, s, config_source=source,
+                      progress=lambda r: print(r.status_line(), flush=True))
     # The per-method lines were already streamed by `progress`; print only the
     # tail of the report so they do not appear twice.
     print()
@@ -172,7 +180,9 @@ def cmd_review(argv) -> int:
         p.error("an .abf path is required")
 
     from .review import open_review
-    open_review(args.abf, args.channel, _load_settings(args), args.only_unique)
+    s, source = _load_settings(args)
+    print(source.describe())
+    open_review(args.abf, args.channel, s, args.only_unique)
     return 0
 
 
@@ -209,8 +219,10 @@ def cmd_methods(argv) -> int:
     p.add_argument("--config", default=None)
     args = p.parse_args(argv)
 
-    from .settings import Settings
-    s = Settings.load(args.config)
+    from .settings import load_with_source
+    s, source = load_with_source(args.config)
+    print(source.describe())
+    print()
     print(f"{'method':<14} {'kind':<9} {'status':<9} description")
     print("-" * 92)
     for name in detectors.names():
@@ -243,8 +255,12 @@ def cmd_calibrate(argv) -> int:
     if not os.path.isdir(args.folder):
         p.error(f"not a folder: {args.folder}")
 
-    from .settings import Settings
-    s = Settings.load(args.config)
+    from .settings import load_with_source
+    s, source = load_with_source(args.config)
+    # Calibration reads the CURRENT settings -- the widen-only rule compares
+    # against them -- so which file they came from changes what it proposes.
+    print(source.describe())
+    print()
     cal = collect(args.folder, s, args.channel, args.min_methods, args.rerun,
                   progress=lambda m: print(m, flush=True))
     print()
@@ -253,6 +269,10 @@ def cmd_calibrate(argv) -> int:
         path = apply(cal, s).save(args.config)
         print()
         print(f"wrote {path}")
+        print("Every later command picks that file up automatically, including")
+        print("runs that do not mention it. Each run reports it on start and")
+        print("records it in its _multimethod_run.json. Rename the file to go")
+        print("back to the built-in defaults.")
     elif cal.proposed:
         print()
         print("re-run with --write to save these as the defaults")

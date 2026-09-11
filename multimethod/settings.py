@@ -22,14 +22,122 @@ from .consensus import DEFAULT_TOLERANCE_MS
 from .events import MeasurementParams
 from .trace import Preprocessing
 
-#: Written next to the package by the parameter window's Save button. Holds
-#: machine-specific paths, so it is gitignored rather than committed.
+#: Written next to the package by the parameter window's Save button, or by
+#: `calibrate --write`. Holds machine-specific paths, so it is gitignored
+#: rather than committed.
+#:
+#: It is picked up automatically by every command, which is the point of it and
+#: also its one hazard: a file written weeks ago silently changes what a fresh
+#: run does. So nothing in this package loads it without also reporting it --
+#: see `ConfigSource` and `load_with_source`.
 DEFAULT_CONFIG_NAME = "multimethod.config.json"
 
 
 def default_config_path() -> str:
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         DEFAULT_CONFIG_NAME)
+
+
+def _flatten(d: dict, prefix: str = "") -> dict:
+    """`{"a": {"b": 1}}` -> `{"a.b": 1}`, so two configs can be diffed field by
+    field rather than section by section."""
+    out = {}
+    for k, v in d.items():
+        key = f"{prefix}{k}"
+        if isinstance(v, dict):
+            out.update(_flatten(v, key + "."))
+        else:
+            out[key] = v
+    return out
+
+
+@dataclass(frozen=True)
+class ConfigSource:
+    """Where a run's parameters came from, and how they differ from the defaults.
+
+    This exists because of a real incident: a `multimethod.config.json` written
+    by `calibrate --write` was in effect for later runs, and those runs gave no
+    sign of it. The parameters were recorded in each run's sidecar, so nothing
+    was lost -- but "recoverable afterwards" is not the same as "visible at the
+    time", and a 4-sigma amplitude floor arriving from an old file changed the
+    event count by 11% with nothing on screen to say so.
+
+    Every command that loads settings reports one of these before it does any
+    work. A config file is a feature; a silent one is not.
+    """
+
+    path: str
+    """The file that was consulted, whether or not it exists."""
+
+    exists: bool
+    """Whether it was there. If not, the built-in defaults are in effect."""
+
+    explicit: bool
+    """True if the user named it with `--config`. An explicit path needs no
+    warning -- they just asked for it. The default path is the hazardous one,
+    because it applies to commands that never mention it."""
+
+    overrides: tuple = ()
+    """`(dotted_field, builtin_value, value_in_effect)` for every field that
+    differs from a stock `Settings()`. Empty when the file matches the defaults,
+    which is worth saying too: it means the file is inert."""
+
+    @property
+    def in_effect(self) -> bool:
+        return self.exists and bool(self.overrides)
+
+    def describe(self) -> str:
+        """One block of text, safe to print before every command."""
+        name = os.path.basename(self.path)
+        if not self.exists:
+            return f"Parameters: built-in defaults (no {name})."
+        where = "--config" if self.explicit else "found beside the package"
+        if not self.overrides:
+            return (f"Parameters: {name} ({where}) is in effect, but every value "
+                    f"in it matches the built-in defaults.")
+        width = max(len(k) for k, _, _ in self.overrides)
+        lines = [f"Parameters: {name} ({where}) overrides "
+                 f"{len(self.overrides)} built-in default(s):"]
+        for key, was, now in self.overrides:
+            lines.append(f"    {key:<{width}}  {was!r} -> {now!r}")
+        if not self.explicit:
+            lines.append("  This file is picked up automatically. To run on "
+                         "the built-in defaults, rename it or pass --config")
+            lines.append("  with a different path.")
+        return "\n".join(lines)
+
+    def as_dict(self) -> dict:
+        """For the run sidecar, so the provenance is recorded and not just shown."""
+        return {"path": os.path.abspath(self.path) if self.exists else self.path,
+                "exists": self.exists,
+                "explicit": self.explicit,
+                "overrides": {k: {"builtin": was, "in_effect": now}
+                              for k, was, now in self.overrides}}
+
+
+def describe_source(settings: "Settings", path: str, exists: bool,
+                    explicit: bool) -> ConfigSource:
+    """Diff `settings` against a stock `Settings()` to build a ConfigSource."""
+    mine = _flatten(settings.to_dict())
+    stock = _flatten(Settings().to_dict())
+    keys = sorted(set(mine) | set(stock))
+    overrides = tuple((k, stock.get(k), mine.get(k)) for k in keys
+                      if mine.get(k) != stock.get(k))
+    return ConfigSource(path=path, exists=exists, explicit=explicit,
+                        overrides=overrides)
+
+
+def load_with_source(path: str | None = None) -> tuple["Settings", ConfigSource]:
+    """`Settings.load`, plus what it loaded and how that differs from default.
+
+    Prefer this over `Settings.load` anywhere a human is watching: it is the
+    only way a command can tell the user that a config file is in effect.
+    """
+    explicit = path is not None
+    resolved = path or default_config_path()
+    exists = os.path.exists(resolved)
+    settings = Settings.load(resolved)
+    return settings, describe_source(settings, resolved, exists, explicit)
 
 
 @dataclass

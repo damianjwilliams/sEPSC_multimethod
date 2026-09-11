@@ -57,6 +57,12 @@ class RunOutcome:
     noise_sd: float = 0.0
     stem: str = ""
     warnings: list = field(default_factory=list)
+    config_source: object = None
+    """The `ConfigSource` these settings came from, if a command resolved one.
+
+    Recorded in the sidecar so a result can be traced to the config file that
+    shaped it -- `settings` alone says what the values were, not where they
+    came from or that they were not the defaults."""
 
     @property
     def ran(self) -> list:
@@ -115,6 +121,8 @@ class RunOutcome:
                 "detection_limit_4sd": 4 * self.noise_sd,
                 "n_consensus_events": len(self.consensus),
                 "settings": self.settings.to_dict(),
+                "config_source": (self.config_source.as_dict()
+                                  if self.config_source is not None else None),
                 "methods": {m: {
                     "ok": r.ok, "message": r.message, "n_events": r.n_events,
                     "n_located": r.n_located,
@@ -187,17 +195,22 @@ def run_one(trace: Trace, method: str, settings: Settings) -> DetectorResult:
 
 
 def run_all(abf_path: str, channel: int = 0, settings: Settings | None = None,
-            methods: list | None = None, progress=None) -> RunOutcome:
+            methods: list | None = None, progress=None,
+            config_source=None) -> RunOutcome:
     """Run every enabled detector and build the consensus.
 
     `progress` is called with each DetectorResult as it completes, so a caller
     can print or update a window without waiting for the slowest method.
+
+    `config_source` is optional provenance, passed straight through to the
+    sidecar. The runner does not read config files itself -- it is given a
+    `Settings` -- so only its caller knows where those values came from.
     """
     s = settings or Settings()
     trace = load(abf_path, channel, s.preprocessing)
     want = list(methods) if methods else s.active_methods()
 
-    outcome = RunOutcome(trace=trace, settings=s,
+    outcome = RunOutcome(trace=trace, settings=s, config_source=config_source,
                          noise_sd=noise_sd(trace, s.measurement.direction),
                          stem=output_stem(abf_path, channel, s.preprocessing))
 

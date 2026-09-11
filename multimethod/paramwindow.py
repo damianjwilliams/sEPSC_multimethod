@@ -186,6 +186,28 @@ def _add_fields(QtWidgets, form, obj, entries: dict) -> None:
         entries[name] = (w, tp, value)
 
 
+def describe_settings_origin(settings: Settings, config_path: str | None) -> str:
+    """One line for the dialog: are these the built-in defaults or not?
+
+    Mirrors `ConfigSource.describe` for the GUI, where a terminal message is
+    easy to miss, but stays short -- the field-by-field diff belongs in the
+    terminal, not in a banner.
+    """
+    from .settings import default_config_path, describe_source
+
+    resolved = config_path or default_config_path()
+    exists = os.path.exists(resolved)
+    src = describe_source(settings, resolved, exists, config_path is not None)
+    if not src.overrides:
+        if not exists:
+            return "These are the package's built-in defaults."
+        return (f"Loaded {os.path.basename(resolved)}; every value in it "
+                f"matches the built-in defaults.")
+    return (f"{len(src.overrides)} value(s) below differ from the built-in "
+            f"defaults, loaded from {os.path.basename(resolved)}. "
+            f'"Reset to defaults" discards them.')
+
+
 def edit_settings(settings: Settings | None = None,
                   abf_path: str = "", channel: int = 0,
                   config_path: str | None = None):
@@ -203,6 +225,16 @@ def edit_settings(settings: Settings | None = None,
     dialog = QtWidgets.QDialog()
     dialog.setWindowTitle("Multi-method event detection — Parameters")
     outer = QtWidgets.QVBoxLayout(dialog)
+
+    # -- where these values came from -----------------------------------
+    # The fields below are pre-filled from whatever settings the caller
+    # resolved, which may be a config file written on some earlier day. Saying
+    # so is the whole point: a user who sees "6.00" in a box has no way to know
+    # whether that is the package default or a value calibrated last month.
+    banner = QtWidgets.QLabel(describe_settings_origin(s, config_path))
+    banner.setWordWrap(True)
+    banner.setStyleSheet("QLabel { color: #555; padding: 2px 0 6px 0; }")
+    outer.addWidget(banner)
 
     # -- recording ------------------------------------------------------
     file_box = QtWidgets.QGroupBox("Recording")
@@ -376,9 +408,15 @@ def edit_settings(settings: Settings | None = None,
 
     def on_save():
         path = harvest().save(config_path)
+        banner.setText(describe_settings_origin(harvest(), path))
         QtWidgets.QMessageBox.information(
             dialog, "Saved", f"Defaults written to\n{path}\n\n"
-            "This file holds machine-specific paths, so it is gitignored.")
+            "Every later command picks this file up automatically, including "
+            "runs that never mention it. Each run reports it on start and "
+            "records it in its _multimethod_run.json, so a result can always "
+            "be traced to the parameters that produced it. Rename the file to "
+            "go back to the built-in defaults.\n\n"
+            "It holds machine-specific paths, so it is gitignored.")
 
     def on_reset():
         if QtWidgets.QMessageBox.question(
