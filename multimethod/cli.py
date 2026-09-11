@@ -20,6 +20,7 @@ COMMANDS = {
     "launch": "Parameter window first, then run, then review",
     "benchmark": "Score the in-repo detectors against planted events",
     "methods": "List the detectors and whether each one can run here",
+    "calibrate": "Set the defaults from your own recordings instead of a fixture",
 }
 
 
@@ -223,8 +224,44 @@ def cmd_methods(argv) -> int:
     return 0
 
 
+def cmd_calibrate(argv) -> int:
+    from .calibrate import apply, collect, report
+
+    p = argparse.ArgumentParser(prog="python -m multimethod calibrate",
+                                description=COMMANDS["calibrate"])
+    p.add_argument("folder", help="folder of .abf recordings")
+    p.add_argument("--channel", type=int, default=0)
+    p.add_argument("--config", default=None)
+    p.add_argument("--min-methods", type=int, default=None,
+                   help="how many methods must agree for an event to be pooled "
+                        "(default: all that ran)")
+    p.add_argument("--rerun", action="store_true",
+                   help="re-run detection instead of reading existing results")
+    p.add_argument("--write", action="store_true",
+                   help="save the proposed values as the new defaults")
+    args = p.parse_args(argv)
+    if not os.path.isdir(args.folder):
+        p.error(f"not a folder: {args.folder}")
+
+    from .settings import Settings
+    s = Settings.load(args.config)
+    cal = collect(args.folder, s, args.channel, args.min_methods, args.rerun,
+                  progress=lambda m: print(m, flush=True))
+    print()
+    print(report(cal, s))
+    if args.write and cal.proposed:
+        path = apply(cal, s).save(args.config)
+        print()
+        print(f"wrote {path}")
+    elif cal.proposed:
+        print()
+        print("re-run with --write to save these as the defaults")
+    return 0
+
+
 HANDLERS = {"run": cmd_run, "review": cmd_review, "launch": cmd_launch,
-            "benchmark": cmd_benchmark, "methods": cmd_methods}
+            "benchmark": cmd_benchmark, "methods": cmd_methods,
+            "calibrate": cmd_calibrate}
 
 
 def main(argv=None) -> int:

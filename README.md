@@ -15,6 +15,7 @@ python run_all.py recording.abf           # run every method, write the tables
 python review_methods.py recording.abf    # who found what, on the trace
 python -m multimethod benchmark           # score the in-repo methods on planted events
 python -m multimethod methods             # what can run on this machine
+python -m multimethod calibrate FOLDER    # set defaults from your own data
 ```
 
 ---
@@ -297,6 +298,51 @@ median |amplitude| rises monotonically with agreement level (8 -> 13 -> 17 ->
 near the noise floor - the expected pattern, and a useful check that the
 consensus is behaving.
 
+## Calibrating the defaults to your own data
+
+```bash
+python -m multimethod calibrate FOLDER            # report only
+python -m multimethod calibrate FOLDER --write    # save as defaults
+```
+
+Every default here was chosen on planted synthetic events. That catches a
+broken detector, but the fixture is not your preparation. This pools the
+high-confidence events across a folder of recordings, measures what they
+actually are, and writes the parameters that follow.
+
+Calibrated from the data: the measurement search windows, the template and
+fallback-kernel time constants, the **consensus tolerance** (from the *measured*
+peak-time disagreement between methods, rather than a guess at it), and the
+4-sigma detection limit (from the noise, not from the events).
+
+Two rules keep it safe to run unattended:
+
+- **Widen only.** A search window is never narrowed. The pooled events were
+  selected *by* the current window, so the tail beyond it is invisible --
+  narrowing to the p99 of what got through would lock that bias in and make
+  slower events permanently unmeasurable.
+- **Kinetics are flagged, not forced.** A kernel faster than the real events is
+  this package's worst failure mode, so an implausible time constant is
+  withheld and reported instead of written.
+
+It reports what it withheld and why, warns where a change alters bookkeeping
+rather than detection, and names the parameters it deliberately leaves alone.
+
+### Calibration is not training
+
+This does **not** train a model on detected events. That would be circular: the
+model would learn to reproduce the detectors, errors included, and the events
+you most need labelled are exactly the disputed ones the detectors cannot
+label. What it measures are properties of the *recordings* -- kinetics, noise,
+inter-method timing spread -- which are facts about your data whichever method
+found them.
+
+The thresholds that trade precision against recall (`amplitude_sd`,
+`thresh_sd`, `criterion_threshold`, `min_state_rise_sd`) are therefore left
+alone. To set those you need ground truth: review a recording, and its
+`*_multimethod_reviewed.csv` becomes a labelled set that can drive miniML
+transfer learning (~400 events is enough) or an Eventer-style classifier.
+
 ## Benchmark
 
 ```bash
@@ -358,6 +404,7 @@ multimethod/
     runner.py       run every detector, collect failures, write the tables
     settings.py     every parameter for every method, serialisable
     benchmark.py    planted ground truth and scoring
+    calibrate.py    set the defaults from a folder of real recordings
     plots.py        the analysis figures (box + whisker + dots, no bar means)
     paramwindow.py  the parameter window (tabs generated from the dataclasses)
     review.py       the review window (who found what, on the trace)
@@ -371,7 +418,7 @@ multimethod/
         external.py       the subprocess boundary; miniML + command adapters
         _miniml_worker.py runs in miniML's interpreter, never imported here
 
-tests/             103 tests: `pytest` from the repo root
+tests/             120 tests: `pytest` from the repo root
 ```
 
 ## Tests
@@ -381,7 +428,7 @@ pip install pytest
 pytest
 ```
 
-103 tests. The consensus matcher gets the most attention because it is this
+120 tests. The consensus matcher gets the most attention because it is this
 package's own logic rather than a wrapper: clusters must not chain, one method
 must not occupy a cluster twice, and the tolerance must actually change the
 answer. Each detector is checked to find planted events, to stay quiet on pure
