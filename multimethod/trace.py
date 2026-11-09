@@ -23,6 +23,7 @@ import numpy as np
 DEFAULT_CUTOFF_HZ = 3000.0
 DEFAULT_TARGET_RATE_HZ = 10_000.0
 DEFAULT_ORDER = 8
+DEFAULT_LINE_HZ = 60.0
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,12 @@ class Preprocessing:
     order: int = DEFAULT_ORDER
     """Bessel filter order. Higher rolls off faster; Bessel is chosen for
     its flat group delay, so event shape and timing survive."""
+    line_hum_hz: float = DEFAULT_LINE_HZ
+    """Mains frequency whose hum is removed, Hz; 0 turns removal off. Use
+    50 outside the Americas. Only stretches with clear hum are changed --
+    the rest of the trace is left exactly as filtered -- and each run
+    reports how many seconds that was. See linehum.py for why this is not
+    a notch filter."""
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -65,13 +72,16 @@ class Preprocessing:
         preprocessed runs cannot overwrite each other's output."""
         if not self.enabled:
             return ""
-        return f"_filt{int(self.cutoff_hz)}Hz{int(self.target_rate_hz)}Hz"
+        hum = f"_hum{int(self.line_hum_hz)}Hz" if self.line_hum_hz > 0 else ""
+        return f"_filt{int(self.cutoff_hz)}Hz{int(self.target_rate_hz)}Hz{hum}"
 
     def describe(self) -> str:
         if not self.enabled:
             return "raw, unfiltered"
+        hum = (f", {self.line_hum_hz:.0f} Hz hum removed"
+               if self.line_hum_hz > 0 else "")
         return (f"Bessel {self.cutoff_hz:.0f} Hz order {self.order} "
-                f"-> {self.target_rate_hz:.0f} Hz")
+                f"-> {self.target_rate_hz:.0f} Hz{hum}")
 
 
 @dataclass(frozen=True)
@@ -90,6 +100,8 @@ class Trace:
     channel: int
     preprocessing: Preprocessing
     hardware_filter_hz: float | None = None
+    line_hum_s: float = 0.0
+    """Seconds of the recording that had mains hum subtracted."""
 
     def __post_init__(self):
         self.v.setflags(write=False)
@@ -161,14 +173,18 @@ def load(abf_path: str, channel: int = 0,
     unit = abf.adcUnits[channel] if channel < len(abf.adcUnits) else "pA"
     hw = hardware_filter_hz(abf, channel)
 
+    hum_s = 0.0
     if pre.enabled:
         v = bessel_lowpass(v, fs, pre.cutoff_hz, pre.order)
         v, fs = decimate_to(v, fs, pre.target_rate_hz)
+        if pre.line_hum_hz > 0:
+            from .linehum import remove_line_hum
+            v, hum_s = remove_line_hum(v, fs, pre.line_hum_hz)
 
     dt = 1.0 / fs
     return Trace(t=np.arange(v.size) * dt, v=v, dt=dt, unit=unit,
                  abf_path=abf_path, channel=channel, preprocessing=pre,
-                 hardware_filter_hz=hw)
+                 hardware_filter_hz=hw, line_hum_s=hum_s)
 
 
 def output_stem(abf_path: str, channel: int = 0,

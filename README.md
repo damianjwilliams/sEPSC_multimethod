@@ -253,7 +253,7 @@ python launch.py
 
 One tab per method, plus three that apply to all of them:
 
-- **Preprocessing** — filter/resample, applied once for every detector
+- **Preprocessing** — filter/resample and remove mains hum, applied once for every detector
 - **Measurement** — how an event is quantified, shared by all methods
 - **Consensus** — how close two methods must be to count as agreeing
 
@@ -536,6 +536,7 @@ run_all.py   launch.py   review_methods.py
 
 multimethod/
     trace.py        loading + preprocessing, once, shared read-only
+    linehum.py      removing mains hum that comes and goes
     events.py       the Event record and the ONE shared measurement routine
     consensus.py    matching each method's detections into shared events
     runner.py       run every detector, collect failures, write the tables

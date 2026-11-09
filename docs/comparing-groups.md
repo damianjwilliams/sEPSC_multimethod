@@ -229,7 +229,9 @@ it is simple to report, the covariate model as confirmation.
 Pair it with series resistance and holding current — a cell can be quiet and
 still badly clamped. And σ is filter-dependent, so it is comparable across
 cells only when preprocessing is identical, which the pipeline enforces via the
-output stem (`_filt3000Hz10000Hz`).
+output stem (`_filt3000Hz10000Hz_hum60Hz`). Mains hum inflates σ too, which is
+one reason it is removed by default; a recording that needed it says how many
+seconds were affected.
 
 ---
 

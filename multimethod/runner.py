@@ -117,6 +117,7 @@ class RunOutcome:
                 "sample_rate_hz": self.trace.fs,
                 "unit": self.trace.unit,
                 "hardware_filter_hz": self.trace.hardware_filter_hz,
+                "line_hum_s": self.trace.line_hum_s,
                 "noise_sd": self.noise_sd,
                 "detection_limit_4sd": 4 * self.noise_sd,
                 "n_consensus_events": len(self.consensus),
@@ -213,6 +214,11 @@ def run_all(abf_path: str, channel: int = 0, settings: Settings | None = None,
     outcome = RunOutcome(trace=trace, settings=s, config_source=config_source,
                          noise_sd=noise_sd(trace, s.measurement.direction),
                          stem=output_stem(abf_path, channel, s.preprocessing))
+    if trace.line_hum_s > 0:
+        outcome.warnings.append(
+            f"mains hum removed from {trace.line_hum_s:.1f} s of "
+            f"{trace.duration_s:.0f} s. Worth a look in the review window: "
+            f"events found there rest on that subtraction.")
 
     for method in want:
         res = run_one(trace, method, s)

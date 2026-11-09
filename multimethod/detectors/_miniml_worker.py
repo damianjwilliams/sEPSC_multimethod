@@ -13,7 +13,7 @@ parent arrives in the request JSON.
     python _miniml_worker.py request.json
 
 Request keys: abf_path, channel, preprocessing{enabled,cutoff_hz,
-target_rate_hz,order}, model_path, threshold, window_ms, batch_size,
+target_rate_hz,order,line_hum_hz}, model_path, threshold, window_ms, batch_size,
 direction, extra_args, miniml_rate_hz, use_legacy_baseline, out_path.
 
 It always writes out_path, even on failure, with {"ok": false, "error": ...} --
@@ -79,6 +79,17 @@ def detect(req):
         if factor > 1:
             v = v[::factor]
             fs = fs / factor
+        line_hz = float(pre.get("line_hum_hz", 0.0) or 0.0)
+        if line_hz > 0:
+            # By file path, not as part of the package: linehum.py is numpy
+            # only for exactly this reason.
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "_mm_linehum", os.path.join(os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__))), "linehum.py"))
+            linehum = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(linehum)
+            v, _ = linehum.remove_line_hum(v, fs, line_hz)
 
     from miniml import EventDetection
     from miniml.core.trace import MiniTrace

@@ -265,11 +265,11 @@ def test_run_all_writes_every_expected_file(tmp_path, monkeypatch):
                          methods=["threshold", "deconvolution"])
     written = out.write()
     names = {os.path.basename(p) for p in written}
-    assert "rec_filt3000Hz10000Hz_multimethod_events.csv" in names
-    assert "rec_filt3000Hz10000Hz_multimethod_summary.csv" in names
-    assert "rec_filt3000Hz10000Hz_multimethod_agreement.csv" in names
-    assert "rec_filt3000Hz10000Hz_multimethod_run.json" in names
-    assert "rec_filt3000Hz10000Hz_threshold_events.csv" in names
+    assert "rec_filt3000Hz10000Hz_hum60Hz_multimethod_events.csv" in names
+    assert "rec_filt3000Hz10000Hz_hum60Hz_multimethod_summary.csv" in names
+    assert "rec_filt3000Hz10000Hz_hum60Hz_multimethod_agreement.csv" in names
+    assert "rec_filt3000Hz10000Hz_hum60Hz_multimethod_run.json" in names
+    assert "rec_filt3000Hz10000Hz_hum60Hz_threshold_events.csv" in names
     for p in written:
         assert os.path.getsize(p) > 0
 
